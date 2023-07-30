@@ -3,3 +3,5 @@
 .gitattributes
 .ipynb_checkpoints
 *.nwb
+*.mat
+*.csv
