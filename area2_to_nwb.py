@@ -83,18 +83,35 @@ def calculate_onset(
         end_time = row[end_field]
         move_start = start_time + start_offset * 0.001
         peak_start = start_time + peak_offset * 0.001
-        start_time = min(start_time, move_start, peak_start)
-        trial_timestamps = timestamps[(timestamps >= start_time) & (timestamps < end_time)]
-        trial_data = data[(timestamps >= start_time) & (timestamps < end_time)]
+
+        trial_timestamps = timestamps[(timestamps >= move_start) & (timestamps < end_time)]
+        trial_data = data[(timestamps >= move_start) & (timestamps < end_time)]
         if np.any(np.isnan(trial_data)):
             onset_list.append(onset)
             continue
         # make masks for valid peaks/onsets
+        # move_start = start_time + start_offset * 0.001
+        # peak_start = start_time + peak_offset * 0.001
         valid_move = trial_timestamps >= move_start
         valid_peak = trial_timestamps >= peak_start
         # get acceleration and jerk
-        dm = np.diff(trial_data, prepend=[trial_data[0]])
+
+        trial_data_binned = np.empty(int(len(trial_data)/10), dtype=float)
+        trial_data_binned.fill(np.nan)
+        for i in range(0,int(len(trial_data)/10)):
+            trial_data_binned[i] = np.mean(trial_data[i*10:i*10+10])
+
+        dm = np.diff(trial_data_binned, prepend=[trial_data_binned[0]])
         ddm = np.diff(dm, prepend=[dm[0]])
+
+        dm = np.repeat(dm, 10)
+        ddm = np.repeat(ddm, 10)
+        dm = np.pad(dm, (0, len(trial_data)-len(dm)), 'edge')
+        ddm = np.pad(ddm, (0, len(trial_data)-len(ddm)), 'edge')
+
+        # dm = np.diff(trial_data, prepend=[trial_data[0]])
+        # ddm = np.diff(dm, prepend=[dm[0]])
+
         # get peak accels by descending zero crossings of jerk
         peaks = (ddm > 0) & (np.pad(ddm, (0,1))[1:] < 0)
         accel_peaks = peaks & valid_peak & (dm > min_ds) & valid_move
@@ -106,8 +123,10 @@ def calculate_onset(
             threshold = peak_accel / peak_divisor
             below_threshold = (dm < threshold) & valid_move & (np.arange(len(dm)) < first_peak)
             if below_threshold.sum() > 0:
-                thresh_crossing = np.max(np.nonzero(below_threshold[::-1])[0])
+                thresh_crossing = np.max(np.nonzero(below_threshold)[0])
                 onset = trial_timestamps[thresh_crossing]
+
+
         if np.isnan(onset):
             above_threshold = (trial_data > s_thresh) & valid_move
             if above_threshold.sum() > 0:
@@ -602,7 +621,8 @@ def area2_to_nwb(
     ###   MOVEMENT ONSET   ###
     ##########################
 
-    speed = np.sqrt(np.sum(ds['vel'][:].T**2, axis=1)) # np.linalg.norm(ds['vel'][:], axis=0),
+    speed = np.sqrt(np.sum(ds['vel'][:].T**2, axis=1)) 
+    # speed = np.linalg.norm(ds['vel'][:], axis=0)
     trial_info_df = nwbfile.trials.to_dataframe()
     act_move_onset = calculate_onset(
         data=speed,
@@ -625,8 +645,8 @@ def area2_to_nwb(
         end_field='go_cue_time',
         min_ds=1,
         s_thresh=5,
-        peak_offset=-50, # ms
-        start_offset=-50, # ms
+        peak_offset=-100, # ms
+        start_offset=-100, # ms
         peak_divisor=10,
         ignored_trials=(~trial_info_df.ctr_hold_bump)
     )
@@ -783,14 +803,14 @@ def area2_to_nwb(
         io.write(nwbfile)
 
 if __name__ == "__main__":
-    file_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/raeed/Chips_20170913_COactpas_TD.mat')
+    file_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/raeed/Lando_20170803_COactpas_TD.mat')
 
     
     # file_path = Path('/snel/share/share/data/raeed_s1/Han_20171116_COactpas_TD-2.mat')
     # file_path = Path('/home/fpei2/lvm/data/orig/Han_20171204_COactpas_TD_1ms.mat')
     # file_path = Path('/home/fpei2/lvm/data/orig/Han_20171207_COactpas_TD_1ms.mat')
 
-    save_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/actpas_NWB/Chips_20170913_COactpas_TD.nwb')
+    save_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/actpas_NWB/Lando_20170803_COactpas_TD.nwb')
 
     area2_to_nwb(
         file_path=file_path,
