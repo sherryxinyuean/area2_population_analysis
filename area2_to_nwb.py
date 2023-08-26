@@ -96,21 +96,22 @@ def calculate_onset(
         valid_peak = trial_timestamps >= peak_start
         # get acceleration and jerk
 
-        trial_data_binned = np.empty(int(len(trial_data)/10), dtype=float)
-        trial_data_binned.fill(np.nan)
-        for i in range(0,int(len(trial_data)/10)):
-            trial_data_binned[i] = np.mean(trial_data[i*10:i*10+10])
+        # trial_data_binned = np.empty(int(len(trial_data)/10), dtype=float)
+        # trial_data_binned.fill(np.nan)
+        # for i in range(0,int(len(trial_data)/10)):
+        #     trial_data_binned[i] = np.mean(trial_data[i*10:i*10+10])
 
-        dm = np.diff(trial_data_binned, prepend=[trial_data_binned[0]])
-        ddm = np.diff(dm, prepend=[dm[0]])
-
-        dm = np.repeat(dm, 10)
-        ddm = np.repeat(ddm, 10)
-        dm = np.pad(dm, (0, len(trial_data)-len(dm)), 'edge')
-        ddm = np.pad(ddm, (0, len(trial_data)-len(ddm)), 'edge')
-
-        # dm = np.diff(trial_data, prepend=[trial_data[0]])
+        # dm = np.diff(trial_data_binned, prepend=[trial_data_binned[0]])
         # ddm = np.diff(dm, prepend=[dm[0]])
+
+        # dm = np.repeat(dm, 10)
+        # ddm = np.repeat(ddm, 10)
+        # dm = np.pad(dm, (0, len(trial_data)-len(dm)), 'edge')
+        # ddm = np.pad(ddm, (0, len(trial_data)-len(ddm)), 'edge')
+
+
+        dm = np.diff(trial_data, prepend=[trial_data[0]])
+        ddm = np.diff(dm, prepend=[dm[0]])
 
         # get peak accels by descending zero crossings of jerk
         peaks = (ddm > 0) & (np.pad(ddm, (0,1))[1:] < 0)
@@ -630,7 +631,7 @@ def area2_to_nwb(
         trial_info=trial_info_df,
         start_field='go_cue_time',
         end_field='stop_time',
-        min_ds=1,
+        min_ds=.1,
         s_thresh=5,
         peak_offset=200, # ms
         start_offset=200, # ms
@@ -643,7 +644,7 @@ def area2_to_nwb(
         trial_info=trial_info_df,
         start_field='bump_time',
         end_field='go_cue_time',
-        min_ds=1,
+        min_ds=.1,
         s_thresh=5,
         peak_offset=-100, # ms
         start_offset=-100, # ms
@@ -803,14 +804,14 @@ def area2_to_nwb(
         io.write(nwbfile)
 
 if __name__ == "__main__":
-    file_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/raeed/Lando_20170803_COactpas_TD.mat')
+    file_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/raeed/Lando_20170731_COactpas_TD.mat')
 
     
     # file_path = Path('/snel/share/share/data/raeed_s1/Han_20171116_COactpas_TD-2.mat')
     # file_path = Path('/home/fpei2/lvm/data/orig/Han_20171204_COactpas_TD_1ms.mat')
     # file_path = Path('/home/fpei2/lvm/data/orig/Han_20171207_COactpas_TD_1ms.mat')
 
-    save_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/actpas_NWB/Lando_20170803_COactpas_TD.nwb')
+    save_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/actpas_NWB/Lando_20170731_COactpas_TD.nwb')
 
     area2_to_nwb(
         file_path=file_path,

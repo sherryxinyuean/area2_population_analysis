@@ -6,3 +6,5 @@
 *.mat
 *.csv
 *.png
+*.pyc
+*.rtf
