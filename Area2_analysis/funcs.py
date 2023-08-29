@@ -149,12 +149,12 @@ def fit_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
     
     rates_array = rates_array.reshape(n_trials, n_timepoints, n_neurons)
     vel_array = vel_array.reshape(n_trials, n_timepoints, 2)
-    if cond_dict == None:
-        kf = KFold(n_splits=5,shuffle=True,random_state = 42)   
+    if not (cond_dict is None):
+        skf = StratifiedKFold(n_splits=5,shuffle=True,random_state = 42)   
         true_concat = nans([n_trials*n_timepoints,2])
         pred_concat = nans([n_trials*n_timepoints,2])
         trial_save_idx = 0
-        for training_set, test_set in kf.split(range(0,n_trials)):
+        for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
             #split training and testing by trials
             X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
             lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)}) 
@@ -166,29 +166,17 @@ def fit_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
             pred_concat[trial_save_idx:trial_save_idx+n,:] = y_test_predicted
             trial_save_idx += n
 
-
-        sses =get_sses_pred(true_concat[:,0],pred_concat[:,0])
-        sses_mean=get_sses_mean(true_concat[:,0])
-        R2 =1-np.sum(sses)/np.sum(sses_mean)     
-        print('x-vel R2:',R2) 
-
-        sses =get_sses_pred(true_concat[:,1],pred_concat[:,1])
-        sses_mean=get_sses_mean(true_concat[:,1])
-        R2 =1-np.sum(sses)/np.sum(sses_mean)     
-        print('y-vel R2:',R2) 
-
-
         sses =get_sses_pred(true_concat,pred_concat)
         sses_mean=get_sses_mean(true_concat)
         R2 =1-np.sum(sses)/np.sum(sses_mean)     
         print('R2:',R2) 
         return R2, lr_all.best_estimator_.coef_, vel_df
     else:
-        skf = StratifiedKFold(n_splits=5,shuffle=True,random_state = 42)   
+        kf = KFold(n_splits=5,shuffle=True,random_state = 42)   
         true_concat = nans([n_trials*n_timepoints,2])
         pred_concat = nans([n_trials*n_timepoints,2])
         trial_save_idx = 0
-        for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
+        for training_set, test_set in kf.split(range(0,n_trials)):
             #split training and testing by trials
             X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
             lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)}) 
@@ -233,7 +221,7 @@ def fit_and_predict_weighted(dataset, trial_mask, align_field, align_range, lag,
     rates_array = rates_array.reshape(n_trials, n_timepoints, n_neurons)
     vel_array = vel_array_reshaped
     
-    if cond_dict == None:
+    if not (cond_dict is None):
         skf = StratifiedKFold(n_splits=5,shuffle=True,random_state = 42)   
         true_concat = nans([n_trials*n_timepoints,2])
         pred_concat = nans([n_trials*n_timepoints,2])
@@ -300,12 +288,12 @@ def fit_and_predict_DNN(dataset, trial_mask, align_field, align_range, lag, x_fi
     rates_array = rates_array.reshape(n_trials, n_timepoints, n_neurons)
     vel_array = vel_array.reshape(n_trials, n_timepoints, 2)
     
-    if cond_dict == None:
-        kf = KFold(n_splits=5,shuffle=True,random_state = 42)   
+    if not (cond_dict is None):
+        skf = StratifiedKFold(n_splits=5,shuffle=True,random_state = 42)   
         true_concat = nans([n_trials*n_timepoints,2])
         pred_concat = nans([n_trials*n_timepoints,2])
         trial_save_idx = 0
-        for training_set, test_set in kf.split(range(0,n_trials)):
+        for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
             #split training and testing by trials
             X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
             dnn = DenseNNDecoder(units=400,dropout=0.25,num_epochs=10)
@@ -323,11 +311,11 @@ def fit_and_predict_DNN(dataset, trial_mask, align_field, align_range, lag, x_fi
         print('R2:',R2) 
         return R2, vel_df
     else:
-        skf = StratifiedKFold(n_splits=5,shuffle=True,random_state = 42)   
+        kf = KFold(n_splits=5,shuffle=True,random_state = 42)   
         true_concat = nans([n_trials*n_timepoints,2])
         pred_concat = nans([n_trials*n_timepoints,2])
         trial_save_idx = 0
-        for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
+        for training_set, test_set in kf.split(range(0,n_trials)):
             #split training and testing by trials
             X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
             dnn = DenseNNDecoder(units=400,dropout=0.25,num_epochs=10)
@@ -368,7 +356,7 @@ def sub_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
     
     rates_array = rates_array.reshape(n_trials, n_timepoints, n_neurons)
     vel_array = vel_array.reshape(n_trials, n_timepoints, 2)
-    if cond_dict == None:
+    if not (cond_dict is None):
         skf = StratifiedKFold(n_splits=5,shuffle=True,random_state = 42)   
         true_concat = nans([n_trials*n_timepoints,2])
         pred_concat = nans([n_trials*n_timepoints,2])
