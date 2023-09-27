@@ -10,17 +10,16 @@ from sklearn.model_selection import StratifiedKFold
 from Neural_Decoding.decoders import DenseNNDecoder
 import scipy.stats
 
-
 def get_sses_pred(y_test,y_test_pred):
     sse=np.sum((y_test_pred-y_test)**2,axis=0)
     return sse
-
 def get_sses_mean(y_test):
     y_mean=np.mean(y_test,axis=0)
     sse_mean=np.sum((y_test-y_mean)**2,axis=0)
     return sse_mean
 
 def nans(shape, dtype=float):
+    """ Returns array of NaNs with defined shape"""
     a = np.empty(shape, dtype)
     a.fill(np.nan)
     return a
@@ -29,7 +28,6 @@ def nans(shape, dtype=float):
 def unit_vector(vector):
     """ Returns the unit vector of the vector.  """
     return vector / np.linalg.norm(vector)
-
 def angle_between(v1, v2):
     """ Returns the angle in radians between vectors 'v1' and 'v2'::
 
@@ -45,10 +43,10 @@ def angle_between(v1, v2):
     return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
 
 def vector_reject(u,v):
-    #project u on v, subtract u1 from u
+    """ Returns u_sub that subtracted u from its projection on v """
     P = np.outer(v,(v.T))/(v@(v.T))
     u_sub = u - P@u
-#     another calculation, to double-check
+#     Another calculation method, to double-check
 #     v_norm = np.sqrt(sum(v**2))    
 #     proj_u_on_v = (np.dot(u, v)/v_norm**2)*v
 #     u_sub = u - proj_u_on_v
@@ -57,11 +55,13 @@ def vector_reject(u,v):
 def calc_proj_matrix(A):
     return A@np.linalg.inv(A.T@A)@A.T
 def calc_proj(b, A):
+    """ Returns projection of b onto the space defined by A """
     P = calc_proj_matrix(A)
     return P@b.T
 
 
 def process_train_test(X,y,training_set,test_set):
+    """ Returns flattened X_train, X_test, y_train, y_test, tailored for the data in trial structure """
     X_train = X[training_set,:,:]
     X_test = X[test_set,:,:]
     y_train = y[training_set,:,:]
@@ -88,8 +88,7 @@ def process_train_test(X,y,training_set,test_set):
 
 
 def pred_with_new_weights(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, sub_weights):
-    
-    """Extracts spiking and kinematic data from selected trials and fits linear decoder"""
+    """ Returns R2, r, and predictions using given weights, basically a matrix multiplication """
     # Extract rate data from selected trials
     vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
     # Lag alignment for kinematics and extract kinematics data from selected trials
@@ -99,19 +98,19 @@ def pred_with_new_weights(dataset, trial_mask, align_field, align_range, lag, x_
     rates_array = rates_df[x_field].to_numpy()
     vel_array = vel_df[y_field].to_numpy()
     
-    pred_vel = np.dot(rates_array,sub_weights.T)
+    pred_vel = rates_array @ sub_weights.T
     
     print(pred_vel.shape)
     
     sses =get_sses_pred(vel_array[:,0],pred_vel[:,0])
     sses_mean=get_sses_mean(vel_array[:,0])
     R2 =1-np.sum(sses)/np.sum(sses_mean)     
-    print('x-vel R2:',R2) 
+    print('x- R2:',R2) 
     
     sses =get_sses_pred(vel_array[:,1],pred_vel[:,1])
     sses_mean=get_sses_mean(vel_array[:,1])
     R2 =1-np.sum(sses)/np.sum(sses_mean)     
-    print('y-vel R2:',R2) 
+    print('y- R2:',R2) 
     
     sses =get_sses_pred(vel_array,pred_vel)
     sses_mean=get_sses_mean(vel_array)
@@ -126,7 +125,7 @@ def pred_with_new_weights(dataset, trial_mask, align_field, align_range, lag, x_
 
 
 def fit_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field, y_field,cond_dict=None):
-    """Extracts spiking and kinematic data from selected trials and fits linear decoder"""
+    """ Fits ridge regression and returns R2, regression weights, and predictions """
     # Extract rate data from selected trials
     vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
     # Lag alignment for kinematics and extract kinematics data from selected trials
@@ -195,7 +194,7 @@ def fit_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
         return R2, lr_all.best_estimator_.coef_, vel_df
 
 def fit_and_predict_weighted(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, cond_dict=None):
-    """Extracts spiking and kinematic data from selected trials and fits linear decoder"""
+    """ Fits weighted ridge regression and returns R2, regression weights, and predictions """
     # Extract rate data from selected trials
     vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
     # Lag alignment for kinematics and extract kinematics data from selected trials
@@ -211,6 +210,7 @@ def fit_and_predict_weighted(dataset, trial_mask, align_field, align_range, lag,
     vel_array = vel_df[y_field].to_numpy()
     
     vel_array_reshaped = vel_array.reshape(n_trials, n_timepoints, 2)
+    # Define sample weights as the inverse of standard deviation
     sw = 1/((np.std(vel_array_reshaped[:,:,0],axis = 0) + np.std(vel_array_reshaped[:,:,1],axis = 0))/2)
     
     lr_all.fit(rates_array, vel_array,sample_weight = np.tile(sw,n_trials))
@@ -267,7 +267,7 @@ def fit_and_predict_weighted(dataset, trial_mask, align_field, align_range, lag,
         return R2, lr_all.best_estimator_.coef_, vel_df        
 
 def fit_and_predict_DNN(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, cond_dict=None):
-    """Extracts spiking and kinematic data from selected trials and fits linear decoder"""
+    """ Fits DNN and returns R2 and predictions """
     # Extract rate data from selected trials
     vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
     # Lag alignment for kinematics and extract kinematics data from selected trials
@@ -334,7 +334,7 @@ def fit_and_predict_DNN(dataset, trial_mask, align_field, align_range, lag, x_fi
         return R2, vel_df       
 
 def sub_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, weights,cond_dict = None):
-    """Extracts spiking and kinematic data from selected trials and fits linear decoder"""
+    """ Subtracts neural projection onto a certain subspace defined by weights and fits another Ridge Regression """
     # Extract rate data from selected trials
     vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
     # Lag alignment for kinematics and extract kinematics data from selected trials
@@ -400,3 +400,96 @@ def sub_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
         R2 =1-np.sum(sses)/np.sum(sses_mean)     
         print('R2:',R2) 
         return R2, lr_all.best_estimator_.coef_, vel_df        
+    
+def mp_fit_lag_r2(dataset, trial_mask, align_field, align_range, lag, x_field, y_field,cond_dict=None):
+    vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
+    lag_align_range = (align_range[0] + lag, align_range[1] + lag)
+    rates_df = dataset.make_trial_data(align_field=align_field, align_range=lag_align_range, ignored_trials=~trial_mask)
+    n_trials = rates_df['trial_id'].nunique()
+    n_timepoints = int((align_range[1] - align_range[0])/dataset.bin_width)
+    n_neurons = rates_df[x_field].shape[1]
+    rates_array = rates_df[x_field].to_numpy().reshape(n_trials, n_timepoints, n_neurons)
+    vel_array = vel_df[y_field].to_numpy().reshape(n_trials, n_timepoints, 2)
+    if not (cond_dict is None):
+        skf = StratifiedKFold(n_splits=5,shuffle=True,random_state = 42)   
+        true_concat = nans([n_trials*n_timepoints,2])
+        pred_concat = nans([n_trials*n_timepoints,2])
+        trial_save_idx = 0
+        for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
+            X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
+            lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)}) 
+            lr.fit(X_train, y_train)
+            y_test_predicted = lr.predict(X_test)
+            n = y_test_predicted.shape[0]
+            true_concat[trial_save_idx:trial_save_idx+n,:] = y_test
+            pred_concat[trial_save_idx:trial_save_idx+n,:] = y_test_predicted
+            trial_save_idx += n
+        sses =get_sses_pred(true_concat,pred_concat)
+        sses_mean=get_sses_mean(true_concat)
+        R2 =1-np.sum(sses)/np.sum(sses_mean)     
+        return R2
+    else:
+        kf = KFold(n_splits=5,shuffle=True,random_state = 42)   
+        true_concat = nans([n_trials*n_timepoints,2])
+        pred_concat = nans([n_trials*n_timepoints,2])
+        trial_save_idx = 0
+        for training_set, test_set in kf.split(range(0,n_trials)):
+            X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
+            lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)}) 
+            lr.fit(X_train, y_train)
+            y_test_predicted = lr.predict(X_test)
+            n = y_test_predicted.shape[0]
+            true_concat[trial_save_idx:trial_save_idx+n,:] = y_test
+            pred_concat[trial_save_idx:trial_save_idx+n,:] = y_test_predicted
+            trial_save_idx += n
+        sses =get_sses_pred(true_concat,pred_concat)
+        sses_mean=get_sses_mean(true_concat)
+        R2 =1-np.sum(sses)/np.sum(sses_mean)     
+        return R2
+
+def mp_sub_lag_r2(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, weights,cond_dict = None):
+    vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
+    lag_align_range = (align_range[0] + lag, align_range[1] + lag)
+    rates_df = dataset.make_trial_data(align_field=align_field, align_range=lag_align_range, ignored_trials=~trial_mask)
+    n_trials = rates_df['trial_id'].nunique()
+    n_timepoints = int((align_range[1] - align_range[0])/dataset.bin_width)
+    n_neurons = rates_df[x_field].shape[1]
+    rates_array = rates_df[x_field].to_numpy() - calc_proj(rates_df[x_field].to_numpy(),weights.T).T
+    rates_array = rates_array.reshape(n_trials, n_timepoints, n_neurons)
+    vel_array = vel_df[y_field].to_numpy().reshape(n_trials, n_timepoints, 2)
+    if not (cond_dict is None):
+        skf = StratifiedKFold(n_splits=5,shuffle=True,random_state = 42)   
+        true_concat = nans([n_trials*n_timepoints,2])
+        pred_concat = nans([n_trials*n_timepoints,2])
+        trial_save_idx = 0
+        for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
+            X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
+            lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)}) 
+            lr.fit(X_train, y_train)
+            y_test_predicted = lr.predict(X_test)
+            n = y_test_predicted.shape[0]
+            true_concat[trial_save_idx:trial_save_idx+n,:] = y_test
+            pred_concat[trial_save_idx:trial_save_idx+n,:] = y_test_predicted
+            trial_save_idx += n   
+        sses =get_sses_pred(true_concat,pred_concat)
+        sses_mean=get_sses_mean(true_concat)
+        R2 =1-np.sum(sses)/np.sum(sses_mean)     
+        return R2
+    else:
+        kf = KFold(n_splits=5,shuffle=True,random_state = 42)   
+        true_concat = nans([n_trials*n_timepoints,2])
+        pred_concat = nans([n_trials*n_timepoints,2])
+        trial_save_idx = 0
+        for training_set, test_set in kf.split(range(0,n_trials)):
+            X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
+            lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)}) 
+            lr.fit(X_train, y_train)
+            y_test_predicted = lr.predict(X_test)       
+            n = y_test_predicted.shape[0]
+            true_concat[trial_save_idx:trial_save_idx+n,:] = y_test
+            pred_concat[trial_save_idx:trial_save_idx+n,:] = y_test_predicted
+            trial_save_idx += n       
+        sses =get_sses_pred(true_concat,pred_concat)
+        sses_mean=get_sses_mean(true_concat)
+        R2 =1-np.sum(sses)/np.sum(sses_mean)     
+        return R2

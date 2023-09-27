@@ -6,12 +6,16 @@ import numpy as np
 import scipy.signal as signal
 import pandas as pd
 
+"""
+    Replicates of methods used in Area 2 analysis, tailored for the un-trialized data structures
+"""
 
-#Modifying nwb smooth_spk 
+#Modifying smooth_spk function from nlb_tools.nwb_interface
 def smooth_column(x, window, dtype):
     y = signal.convolve(x.astype(dtype),window,'same')
     return y
 def smooth_spk(neural_data, gauss_width, bin_width,dtype="float64"):
+    """ Smooth spikes by Gaussian kernel """
     gauss_bin_std = gauss_width / bin_width
     win_len = int(6*gauss_bin_std)
     window = signal.gaussian(win_len, gauss_bin_std, sym = True)
@@ -19,7 +23,7 @@ def smooth_spk(neural_data, gauss_width, bin_width,dtype="float64"):
     smoothed_spikes = np.apply_along_axis(lambda x: smooth_column(x, window, dtype), 0, neural_data)
     return smoothed_spikes
 
-#Modifying my functions
+#Modifying my functions from Area2_analysis.funcs
 def process_train_test(X,y,training_set,test_set):
     X_train = X[training_set,:]
     X_test = X[test_set,:]
@@ -68,6 +72,7 @@ def fit_and_predict(X, Y, lag,bin_size):
     sses =get_sses_pred(true_concat,pred_concat)
     sses_mean=get_sses_mean(true_concat)
     R2 =1-np.sum(sses)/np.sum(sses_mean)     
+    print('R2:',R2) 
     return R2, lr_all.best_estimator_.coef_, vel_df
 
 def sub_and_predict(X, Y, lag,bin_size,weights):
@@ -102,7 +107,8 @@ def sub_and_predict(X, Y, lag,bin_size,weights):
         save_idx += n
     sses =get_sses_pred(true_concat,pred_concat)
     sses_mean=get_sses_mean(true_concat)
-    R2 =1-np.sum(sses)/np.sum(sses_mean)     
+    R2 =1-np.sum(sses)/np.sum(sses_mean)   
+    print('R2:',R2)   
     return R2, lr_all.best_estimator_.coef_, vel_df
 
 def mp_fit_lag_r2(X,Y,lag,bin_size):
@@ -121,7 +127,6 @@ def mp_fit_lag_r2(X,Y,lag,bin_size):
     pred_concat = nans([n_timepoints,2])
     save_idx = 0
     for training_set, test_set in kf.split(range(0,n_timepoints)):
-        #split training and testing by trials
         X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
         lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)}) 
         lr.fit(X_train, y_train)
@@ -134,7 +139,6 @@ def mp_fit_lag_r2(X,Y,lag,bin_size):
     sses_mean=get_sses_mean(true_concat)
     r2 =1-np.sum(sses)/np.sum(sses_mean)     
     return r2
-
 
 def mp_sub_lag_r2(X,Y,lag,bin_size,weights):
     lagged_bins = int(lag/bin_size)
@@ -166,7 +170,13 @@ def mp_sub_lag_r2(X,Y,lag,bin_size,weights):
     r2 =1-np.sum(sses)/np.sum(sses_mean)     
     return r2
 
-def mp_multi_fit_lag_r2(x,y):
+def multi_fit_coef(x,y):
+    lr_all = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)})
+    lr_all.fit(x, y)
+    coef = lr_all.best_estimator_.coef_
+    return coef
+
+def multi_fit_r2(x,y):
     n_timepoints = x.shape[0]
     kf = KFold(n_splits=5,shuffle=False)   
     true_concat = nans([n_timepoints,2])
