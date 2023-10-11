@@ -9,3 +9,5 @@
 *.pyc
 *.rtf
 *.pickle
+*.npy
+*.npz

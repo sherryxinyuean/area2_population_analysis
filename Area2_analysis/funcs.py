@@ -89,9 +89,7 @@ def process_train_test(X,y,training_set,test_set):
 
 def pred_with_new_weights(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, sub_weights):
     """ Returns R2, r, and predictions using given weights, basically a matrix multiplication """
-    # Extract rate data from selected trials
     vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
-    # Lag alignment for kinematics and extract kinematics data from selected trials
     lag_align_range = (align_range[0] + lag, align_range[1] + lag)
     rates_df = dataset.make_trial_data(align_field=align_field, align_range=lag_align_range, ignored_trials=~trial_mask)
 
@@ -119,16 +117,19 @@ def pred_with_new_weights(dataset, trial_mask, align_field, align_range, lag, x_
     
     r = scipy.stats.pearsonr(vel_array.reshape(-1), pred_vel.reshape(-1))[0]
     
-    vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y'], 2))], axis=1)
+    if vel_array.shape[-1] == 2:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y'], 2))], axis=1)
+    if vel_array.shape[-1] == 3:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y','z'], 3))], axis=1)
     
     return R2, r, vel_df
 
 
 def fit_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field, y_field,cond_dict=None):
     """ Fits ridge regression and returns R2, regression weights, and predictions """
-    # Extract rate data from selected trials
+    # Extract kinematics data from selected trials
     vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
-    # Lag alignment for kinematics and extract kinematics data from selected trials
+    # Lag alignment for rates and extract rates data from selected trials
     lag_align_range = (align_range[0] + lag, align_range[1] + lag)
     rates_df = dataset.make_trial_data(align_field=align_field, align_range=lag_align_range, ignored_trials=~trial_mask)
     
@@ -142,16 +143,20 @@ def fit_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
     vel_array = vel_df[y_field].to_numpy()
     lr_all.fit(rates_array, vel_array)
     pred_vel = lr_all.predict(rates_array)
-    vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y'], 2))], axis=1)
+    if vel_array.shape[-1] == 2:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y'], 2))], axis=1)
+    if vel_array.shape[-1] == 3:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y','z'], 3))], axis=1)
+    
     #     print(lr_all.best_params_['alpha'])
 
     
     rates_array = rates_array.reshape(n_trials, n_timepoints, n_neurons)
-    vel_array = vel_array.reshape(n_trials, n_timepoints, 2)
+    vel_array = vel_array.reshape(n_trials, n_timepoints, -1)
     if not (cond_dict is None):
         skf = StratifiedKFold(n_splits=5,shuffle=True,random_state = 42)   
-        true_concat = nans([n_trials*n_timepoints,2])
-        pred_concat = nans([n_trials*n_timepoints,2])
+        true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
+        pred_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
         trial_save_idx = 0
         for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
             #split training and testing by trials
@@ -172,8 +177,8 @@ def fit_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
         return R2, lr_all.best_estimator_.coef_, vel_df
     else:
         kf = KFold(n_splits=5,shuffle=True,random_state = 42)   
-        true_concat = nans([n_trials*n_timepoints,2])
-        pred_concat = nans([n_trials*n_timepoints,2])
+        true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
+        pred_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
         trial_save_idx = 0
         for training_set, test_set in kf.split(range(0,n_trials)):
             #split training and testing by trials
@@ -195,9 +200,7 @@ def fit_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
 
 def fit_and_predict_weighted(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, cond_dict=None):
     """ Fits weighted ridge regression and returns R2, regression weights, and predictions """
-    # Extract rate data from selected trials
     vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
-    # Lag alignment for kinematics and extract kinematics data from selected trials
     lag_align_range = (align_range[0] + lag, align_range[1] + lag)
     rates_df = dataset.make_trial_data(align_field=align_field, align_range=lag_align_range, ignored_trials=~trial_mask)
     
@@ -209,13 +212,17 @@ def fit_and_predict_weighted(dataset, trial_mask, align_field, align_range, lag,
     rates_array = rates_df[x_field].to_numpy()
     vel_array = vel_df[y_field].to_numpy()
     
-    vel_array_reshaped = vel_array.reshape(n_trials, n_timepoints, 2)
+    vel_array_reshaped = vel_array.reshape(n_trials, n_timepoints, -1)
     # Define sample weights as the inverse of standard deviation
     sw = 1/((np.std(vel_array_reshaped[:,:,0],axis = 0) + np.std(vel_array_reshaped[:,:,1],axis = 0))/2)
     
     lr_all.fit(rates_array, vel_array,sample_weight = np.tile(sw,n_trials))
     pred_vel = lr_all.predict(rates_array)
-    vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y'], 2))], axis=1)
+    if vel_array.shape[-1] == 2:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y'], 2))], axis=1)
+    if vel_array.shape[-1] == 3:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y','z'], 3))], axis=1)
+    
 #     print(lr_all.best_params_['alpha'])
     
     rates_array = rates_array.reshape(n_trials, n_timepoints, n_neurons)
@@ -223,8 +230,8 @@ def fit_and_predict_weighted(dataset, trial_mask, align_field, align_range, lag,
     
     if not (cond_dict is None):
         skf = StratifiedKFold(n_splits=5,shuffle=True,random_state = 42)   
-        true_concat = nans([n_trials*n_timepoints,2])
-        pred_concat = nans([n_trials*n_timepoints,2])
+        true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
+        pred_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
         trial_save_idx = 0
         for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
             #split training and testing by trials
@@ -245,8 +252,8 @@ def fit_and_predict_weighted(dataset, trial_mask, align_field, align_range, lag,
         return R2, lr_all.best_estimator_.coef_, vel_df
     else:
         kf = KFold(n_splits=5,shuffle=True,random_state = 42)   
-        true_concat = nans([n_trials*n_timepoints,2])
-        pred_concat = nans([n_trials*n_timepoints,2])
+        true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
+        pred_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
         trial_save_idx = 0
         for training_set, test_set in kf.split(range(0,n_trials)):
             #split training and testing by trials
@@ -268,9 +275,7 @@ def fit_and_predict_weighted(dataset, trial_mask, align_field, align_range, lag,
 
 def fit_and_predict_DNN(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, cond_dict=None):
     """ Fits DNN and returns R2 and predictions """
-    # Extract rate data from selected trials
     vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
-    # Lag alignment for kinematics and extract kinematics data from selected trials
     lag_align_range = (align_range[0] + lag, align_range[1] + lag)
     rates_df = dataset.make_trial_data(align_field=align_field, align_range=lag_align_range, ignored_trials=~trial_mask)
     
@@ -283,15 +288,19 @@ def fit_and_predict_DNN(dataset, trial_mask, align_field, align_range, lag, x_fi
     vel_array = vel_df[y_field].to_numpy()
     dnn_all.fit(rates_array, vel_array)
     pred_vel = dnn_all.predict(rates_array)
-    vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y'], 2))], axis=1)
+
+    if vel_array.shape[-1] == 2:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y'], 2))], axis=1)
+    if vel_array.shape[-1] == 3:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y','z'], 3))], axis=1)
     
     rates_array = rates_array.reshape(n_trials, n_timepoints, n_neurons)
-    vel_array = vel_array.reshape(n_trials, n_timepoints, 2)
+    vel_array = vel_array.reshape(n_trials, n_timepoints, -1)
     
     if not (cond_dict is None):
         skf = StratifiedKFold(n_splits=5,shuffle=True,random_state = 42)   
-        true_concat = nans([n_trials*n_timepoints,2])
-        pred_concat = nans([n_trials*n_timepoints,2])
+        true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
+        pred_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
         trial_save_idx = 0
         for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
             #split training and testing by trials
@@ -312,8 +321,8 @@ def fit_and_predict_DNN(dataset, trial_mask, align_field, align_range, lag, x_fi
         return R2, vel_df
     else:
         kf = KFold(n_splits=5,shuffle=True,random_state = 42)   
-        true_concat = nans([n_trials*n_timepoints,2])
-        pred_concat = nans([n_trials*n_timepoints,2])
+        true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
+        pred_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
         trial_save_idx = 0
         for training_set, test_set in kf.split(range(0,n_trials)):
             #split training and testing by trials
@@ -335,9 +344,7 @@ def fit_and_predict_DNN(dataset, trial_mask, align_field, align_range, lag, x_fi
 
 def sub_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, weights,cond_dict = None):
     """ Subtracts neural projection onto a certain subspace defined by weights and fits another Ridge Regression """
-    # Extract rate data from selected trials
     vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
-    # Lag alignment for kinematics and extract kinematics data from selected trials
     lag_align_range = (align_range[0] + lag, align_range[1] + lag)
     rates_df = dataset.make_trial_data(align_field=align_field, align_range=lag_align_range, ignored_trials=~trial_mask)
     
@@ -351,15 +358,19 @@ def sub_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
     lr_all = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)})
     lr_all.fit(rates_array, vel_array)
     pred_vel = lr_all.predict(rates_array)
-    vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y'], 2))], axis=1)
+    if vel_array.shape[-1] == 2:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y'], 2))], axis=1)
+    if vel_array.shape[-1] == 3:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y','z'], 3))], axis=1)
+    
 #     print(lr_all.best_params_['alpha'])
     
     rates_array = rates_array.reshape(n_trials, n_timepoints, n_neurons)
-    vel_array = vel_array.reshape(n_trials, n_timepoints, 2)
+    vel_array = vel_array.reshape(n_trials, n_timepoints, -1)
     if not (cond_dict is None):
         skf = StratifiedKFold(n_splits=5,shuffle=True,random_state = 42)   
-        true_concat = nans([n_trials*n_timepoints,2])
-        pred_concat = nans([n_trials*n_timepoints,2])
+        true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
+        pred_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
         trial_save_idx = 0
         for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
             #split training and testing by trials
@@ -380,8 +391,8 @@ def sub_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
         return R2, lr_all.best_estimator_.coef_, vel_df
     else:
         kf = KFold(n_splits=5,shuffle=True,random_state = 42)   
-        true_concat = nans([n_trials*n_timepoints,2])
-        pred_concat = nans([n_trials*n_timepoints,2])
+        true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
+        pred_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
         trial_save_idx = 0
         for training_set, test_set in kf.split(range(0,n_trials)):
             #split training and testing by trials
@@ -409,11 +420,11 @@ def mp_fit_lag_r2(dataset, trial_mask, align_field, align_range, lag, x_field, y
     n_timepoints = int((align_range[1] - align_range[0])/dataset.bin_width)
     n_neurons = rates_df[x_field].shape[1]
     rates_array = rates_df[x_field].to_numpy().reshape(n_trials, n_timepoints, n_neurons)
-    vel_array = vel_df[y_field].to_numpy().reshape(n_trials, n_timepoints, 2)
+    vel_array = vel_df[y_field].to_numpy().reshape(n_trials, n_timepoints, -1)
     if not (cond_dict is None):
         skf = StratifiedKFold(n_splits=5,shuffle=True,random_state = 42)   
-        true_concat = nans([n_trials*n_timepoints,2])
-        pred_concat = nans([n_trials*n_timepoints,2])
+        true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
+        pred_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
         trial_save_idx = 0
         for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
             X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
@@ -430,8 +441,8 @@ def mp_fit_lag_r2(dataset, trial_mask, align_field, align_range, lag, x_field, y
         return R2
     else:
         kf = KFold(n_splits=5,shuffle=True,random_state = 42)   
-        true_concat = nans([n_trials*n_timepoints,2])
-        pred_concat = nans([n_trials*n_timepoints,2])
+        true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
+        pred_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
         trial_save_idx = 0
         for training_set, test_set in kf.split(range(0,n_trials)):
             X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
@@ -456,11 +467,11 @@ def mp_sub_lag_r2(dataset, trial_mask, align_field, align_range, lag, x_field, y
     n_neurons = rates_df[x_field].shape[1]
     rates_array = rates_df[x_field].to_numpy() - calc_proj(rates_df[x_field].to_numpy(),weights.T).T
     rates_array = rates_array.reshape(n_trials, n_timepoints, n_neurons)
-    vel_array = vel_df[y_field].to_numpy().reshape(n_trials, n_timepoints, 2)
+    vel_array = vel_df[y_field].to_numpy().reshape(n_trials, n_timepoints, -1)
     if not (cond_dict is None):
         skf = StratifiedKFold(n_splits=5,shuffle=True,random_state = 42)   
-        true_concat = nans([n_trials*n_timepoints,2])
-        pred_concat = nans([n_trials*n_timepoints,2])
+        true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
+        pred_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
         trial_save_idx = 0
         for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
             X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
@@ -477,8 +488,8 @@ def mp_sub_lag_r2(dataset, trial_mask, align_field, align_range, lag, x_field, y
         return R2
     else:
         kf = KFold(n_splits=5,shuffle=True,random_state = 42)   
-        true_concat = nans([n_trials*n_timepoints,2])
-        pred_concat = nans([n_trials*n_timepoints,2])
+        true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
+        pred_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
         trial_save_idx = 0
         for training_set, test_set in kf.split(range(0,n_trials)):
             X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
