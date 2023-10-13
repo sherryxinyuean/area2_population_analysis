@@ -1,7 +1,7 @@
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
-from Area2_analysis.funcs import get_sses_pred, get_sses_mean, nans, calc_proj
+from Area2_analysis.lr_funcs import get_sses_pred, get_sses_mean, nans, calc_proj
 import numpy as np
 import scipy.signal as signal
 import pandas as pd

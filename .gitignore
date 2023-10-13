@@ -11,3 +11,4 @@
 *.pickle
 *.npy
 *.npz
+*plot-only*
