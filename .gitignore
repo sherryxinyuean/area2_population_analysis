@@ -12,3 +12,4 @@
 *.npy
 *.npz
 *plot-only*
+*.pdf
