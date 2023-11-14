@@ -161,8 +161,8 @@ def process_train_test(X,y,training_set,test_set):
     
     X_flat_train_mean=np.nanmean(X_flat_train,axis=0)
     X_flat_train_std=np.nanstd(X_flat_train,axis=0)   
-    #array with only 0 will have 0 std and cause errors
-    X_flat_train_std[X_flat_train_std==0] = 1
+    # 0 entry means neuron will have 0 std and cause errors. in this case, that neuron should be excluded though
+    # X_flat_train_std[X_flat_train_std==0] = 1
     
     X_flat_train=(X_flat_train-X_flat_train_mean)/X_flat_train_std
     X_flat_test=(X_flat_test-X_flat_train_mean)/X_flat_train_std
