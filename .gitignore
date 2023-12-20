@@ -13,3 +13,5 @@
 *.npz
 *plot-only*
 *.pdf
+*.ai
+*.jpg
