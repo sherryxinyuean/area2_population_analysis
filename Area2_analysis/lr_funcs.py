@@ -182,7 +182,7 @@ def process_train_test(X,y,training_set,test_set):
     return X_flat_train,X_flat_test,y_train,y_test
 
 
-def pred_with_new_weights(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, sub_weights, train_range, train_lag_range, train_mask):
+def pred_with_new_weights(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, sub_weights, sub_offset, train_range, train_lag_range, train_mask):
     """ Returns R2, r, and predictions using given weights, basically a matrix multiplication """
     vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
     lag_align_range = (align_range[0] + lag, align_range[1] + lag)
@@ -195,7 +195,7 @@ def pred_with_new_weights(dataset, trial_mask, align_field, align_range, lag, x_
     train_rates_array = train_rates_df[x_field].to_numpy()
 
     X = (rates_array - np.nanmean(train_rates_array,axis=0))/np.nanstd(train_rates_array,axis=0)
-    Y_hat = X@sub_weights.T
+    Y_hat = X@sub_weights.T + sub_offset
 
     train_vel_df = dataset.make_trial_data(align_field=align_field, align_range=train_range, ignored_trials=~train_mask)
     train_vel_array = train_vel_df[y_field].to_numpy()
@@ -273,7 +273,7 @@ def fit_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
         sses =get_sses_pred(true_concat,pred_concat)
         sses_mean=get_sses_mean(true_concat)
         R2 =1-np.sum(sses)/np.sum(sses_mean)     
-        return R2, lr_all.best_estimator_.coef_, vel_df
+        return R2, lr_all.best_estimator_.coef_, lr_all.best_estimator_.intercept_, vel_df
     else:
         kf = KFold(n_splits=5,shuffle=True,random_state = 42)   
         true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
@@ -294,7 +294,7 @@ def fit_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
         sses =get_sses_pred(true_concat,pred_concat)
         sses_mean=get_sses_mean(true_concat)
         R2 =1-np.sum(sses)/np.sum(sses_mean)     
-        return R2, lr_all.best_estimator_.coef_, vel_df
+        return R2, lr_all.best_estimator_.coef_, lr_all.best_estimator_.intercept_, vel_df
     
 
 def fit_and_predict_lasso(dataset, trial_mask, align_field, align_range, lag, x_field, y_field,cond_dict=None):
@@ -346,7 +346,7 @@ def fit_and_predict_lasso(dataset, trial_mask, align_field, align_range, lag, x_
         sses =get_sses_pred(true_concat,pred_concat)
         sses_mean=get_sses_mean(true_concat)
         R2 =1-np.sum(sses)/np.sum(sses_mean)     
-        return R2, lr_all.best_estimator_.coef_, vel_df
+        return R2, lr_all.best_estimator_.coef_, lr_all.best_estimator_.intercept_, vel_df
     else:
         kf = KFold(n_splits=5,shuffle=True,random_state = 42)   
         true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
@@ -367,7 +367,7 @@ def fit_and_predict_lasso(dataset, trial_mask, align_field, align_range, lag, x_
         sses =get_sses_pred(true_concat,pred_concat)
         sses_mean=get_sses_mean(true_concat)
         R2 =1-np.sum(sses)/np.sum(sses_mean)     
-        return R2, lr_all.best_estimator_.coef_, vel_df
+        return R2, lr_all.best_estimator_.coef_, lr_all.best_estimator_.intercept_, vel_df
 
 def fit_and_predict_weighted(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, cond_dict=None):
     """ Fits weighted ridge regression and returns R2, regression weights, and predictions """
@@ -420,7 +420,7 @@ def fit_and_predict_weighted(dataset, trial_mask, align_field, align_range, lag,
         sses =get_sses_pred(true_concat,pred_concat)
         sses_mean=get_sses_mean(true_concat)
         R2 =1-np.sum(sses)/np.sum(sses_mean)     
-        return R2, lr_all.best_estimator_.coef_, vel_df
+        return R2, lr_all.best_estimator_.coef_, lr_all.best_estimator_.intercept_, vel_df
     else:
         kf = KFold(n_splits=5,shuffle=True,random_state = 42)   
         true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
@@ -441,7 +441,7 @@ def fit_and_predict_weighted(dataset, trial_mask, align_field, align_range, lag,
         sses =get_sses_pred(true_concat,pred_concat)
         sses_mean=get_sses_mean(true_concat)
         R2 =1-np.sum(sses)/np.sum(sses_mean)     
-        return R2, lr_all.best_estimator_.coef_, vel_df        
+        return R2, lr_all.best_estimator_.coef_, lr_all.best_estimator_.intercept_, vel_df        
 
 
 def sub_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, weights,cond_dict = None):
@@ -494,7 +494,7 @@ def sub_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
         sses =get_sses_pred(true_concat,pred_concat)
         sses_mean=get_sses_mean(true_concat)
         R2 =1-np.sum(sses)/np.sum(sses_mean)     
-        return R2, lr_all.best_estimator_.coef_, vel_df
+        return R2, lr_all.best_estimator_.coef_, lr_all.best_estimator_.intercept_, vel_df
     else:
         kf = KFold(n_splits=5,shuffle=True,random_state = 42)   
         true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
@@ -515,7 +515,7 @@ def sub_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
         sses =get_sses_pred(true_concat,pred_concat)
         sses_mean=get_sses_mean(true_concat)
         R2 =1-np.sum(sses)/np.sum(sses_mean)     
-        return R2, lr_all.best_estimator_.coef_, vel_df        
+        return R2, lr_all.best_estimator_.coef_, lr_all.best_estimator_.intercept_, vel_df        
     
 def mp_fit_lag_r2(dataset, trial_mask, align_field, align_range, lag, x_field, y_field,cond_dict=None):
     vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)

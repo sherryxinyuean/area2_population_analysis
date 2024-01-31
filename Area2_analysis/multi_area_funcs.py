@@ -31,7 +31,7 @@ def process_train_test(X,y,training_set,test_set):
     y_test = y[test_set,:]
     X_train_mean=np.nanmean(X_train,axis=0)
     X_train_std=np.nanstd(X_train,axis=0)   
-    X_train_std[X_train_std==0] = 1 #array with only 0 will have 0 std and cause errors
+    # X_train_std[X_train_std==0] = 1 #array with only 0 will have 0 std and cause errors
     X_train=(X_train-X_train_mean)/X_train_std
     X_test=(X_test-X_train_mean)/X_train_std
     y_train_mean=np.mean(y_train,axis=0)
@@ -52,7 +52,7 @@ def fit_and_predict(X, Y, lag,bin_size):
         vel_array = Y[lagged_bins:-1, :]      
     vel_df = pd.DataFrame(vel_array, columns = {'true_x','true_y'})
     lr_all.fit(rates_array, vel_array)
-    # print(lr_all.best_params_['alpha'])
+    print(lr_all.best_score_)
     pred_vel = lr_all.predict(rates_array)
     vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns = {'pred_x','pred_y'})],axis = 1)
     n_timepoints = rates_array.shape[0]
