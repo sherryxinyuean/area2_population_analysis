@@ -29,14 +29,20 @@ def process_train_test(X,y,training_set,test_set):
     X_test = X[test_set,:]
     y_train = y[training_set,:]
     y_test = y[test_set,:]
+
     X_train_mean=np.nanmean(X_train,axis=0)
     X_train_std=np.nanstd(X_train,axis=0)   
     # X_train_std[X_train_std==0] = 1 #array with only 0 will have 0 std and cause errors
+    y_train_mean=np.nanmean(y_train,axis=0)
+
     X_train=(X_train-X_train_mean)/X_train_std
     X_test=(X_test-X_train_mean)/X_train_std
-    y_train_mean=np.mean(y_train,axis=0)
+    invalid_nrn = np.isnan(X_train).any(axis=0)
+    X_train = X_train[:,~invalid_nrn]
+    X_test = X_test[:,~invalid_nrn]
+
     y_train=y_train-y_train_mean
-    y_test=y_test-y_train_mean    
+    y_test=y_test-y_train_mean
     return X_train,X_test,y_train,y_test
 
 def fit_and_predict(X, Y, lag,bin_size):
@@ -62,7 +68,7 @@ def fit_and_predict(X, Y, lag,bin_size):
     save_idx = 0
     for training_set, test_set in kf.split(range(0,n_timepoints)):
         X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
-        lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)}) 
+        lr = Ridge(alpha=lr_all.best_params_['alpha'])
         lr.fit(X_train, y_train)
         y_test_predicted = lr.predict(X_test)
         n = y_test_predicted.shape[0]
@@ -72,7 +78,6 @@ def fit_and_predict(X, Y, lag,bin_size):
     sses =get_sses_pred(true_concat,pred_concat)
     sses_mean=get_sses_mean(true_concat)
     R2 =1-np.sum(sses)/np.sum(sses_mean)     
-    print('R2:',R2) 
     return R2, lr_all.best_estimator_.coef_, vel_df
 
 def sub_and_predict(X, Y, lag,bin_size,weights):
@@ -98,7 +103,7 @@ def sub_and_predict(X, Y, lag,bin_size,weights):
     save_idx = 0
     for training_set, test_set in kf.split(range(0,n_timepoints)):
         X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
-        lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)}) 
+        lr = Ridge(alpha=lr_all.best_params_['alpha'])
         lr.fit(X_train, y_train)
         y_test_predicted = lr.predict(X_test)
         n = y_test_predicted.shape[0]
@@ -108,90 +113,4 @@ def sub_and_predict(X, Y, lag,bin_size,weights):
     sses =get_sses_pred(true_concat,pred_concat)
     sses_mean=get_sses_mean(true_concat)
     R2 =1-np.sum(sses)/np.sum(sses_mean)   
-    print('R2:',R2)   
     return R2, lr_all.best_estimator_.coef_, vel_df
-
-def mp_fit_lag_r2(X,Y,lag,bin_size):
-    lagged_bins = int(lag/bin_size)
-    if lagged_bins > 0:
-        lagged_bins = abs(lagged_bins)
-        rates_array = X[lagged_bins:-1, :]
-        vel_array = Y[0:(Y.shape[0]-lagged_bins-1), :]
-    else:
-        lagged_bins = abs(lagged_bins)
-        rates_array = X[0:(X.shape[0]-lagged_bins-1), :]
-        vel_array = Y[lagged_bins:-1, :]     
-    n_timepoints = rates_array.shape[0]
-    kf = KFold(n_splits=5,shuffle=False)   
-    true_concat = nans([n_timepoints,2])
-    pred_concat = nans([n_timepoints,2])
-    save_idx = 0
-    for training_set, test_set in kf.split(range(0,n_timepoints)):
-        X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
-        lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)}) 
-        lr.fit(X_train, y_train)
-        y_test_predicted = lr.predict(X_test)
-        n = y_test_predicted.shape[0]
-        true_concat[save_idx:save_idx+n,:] = y_test
-        pred_concat[save_idx:save_idx+n,:] = y_test_predicted
-        save_idx += n
-    sses =get_sses_pred(true_concat,pred_concat)
-    sses_mean=get_sses_mean(true_concat)
-    r2 =1-np.sum(sses)/np.sum(sses_mean)     
-    return r2
-
-def mp_sub_lag_r2(X,Y,lag,bin_size,weights):
-    lagged_bins = int(lag/bin_size)
-    if lagged_bins > 0:
-        lagged_bins = abs(lagged_bins)
-        rates_array = X[lagged_bins:-1, :]
-        vel_array = Y[0:(Y.shape[0]-lagged_bins-1), :]
-    else:
-        lagged_bins = abs(lagged_bins)
-        rates_array = X[0:(X.shape[0]-lagged_bins-1), :]
-        vel_array = Y[lagged_bins:-1, :] 
-    rates_array = rates_array - calc_proj(rates_array, weights.T).T
-    n_timepoints = rates_array.shape[0]
-    kf = KFold(n_splits=5,shuffle=False)   
-    true_concat = nans([n_timepoints,2])
-    pred_concat = nans([n_timepoints,2])
-    save_idx = 0
-    for training_set, test_set in kf.split(range(0,n_timepoints)):
-        X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
-        lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)}) 
-        lr.fit(X_train, y_train)
-        y_test_predicted = lr.predict(X_test)
-        n = y_test_predicted.shape[0]
-        true_concat[save_idx:save_idx+n,:] = y_test
-        pred_concat[save_idx:save_idx+n,:] = y_test_predicted
-        save_idx += n
-    sses =get_sses_pred(true_concat,pred_concat)
-    sses_mean=get_sses_mean(true_concat)
-    r2 =1-np.sum(sses)/np.sum(sses_mean)     
-    return r2
-
-def multi_fit_coef(x,y):
-    lr_all = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)})
-    lr_all.fit(x, y)
-    coef = lr_all.best_estimator_.coef_
-    return coef
-
-def multi_fit_r2(x,y):
-    n_timepoints = x.shape[0]
-    kf = KFold(n_splits=5,shuffle=False)   
-    true_concat = nans([n_timepoints,2])
-    pred_concat = nans([n_timepoints,2])
-    save_idx = 0
-    for training_set, test_set in kf.split(range(0,n_timepoints)):
-        X_train, X_test, y_train, y_test = process_train_test(x,y,training_set,test_set)
-        lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)}) 
-        lr.fit(X_train, y_train)
-        y_test_predicted = lr.predict(X_test)
-        n = y_test_predicted.shape[0]
-        true_concat[save_idx:save_idx+n,:] = y_test
-        pred_concat[save_idx:save_idx+n,:] = y_test_predicted
-        save_idx += n
-    sses =get_sses_pred(true_concat,pred_concat)
-    sses_mean=get_sses_mean(true_concat)
-    r2 =1-np.sum(sses)/np.sum(sses_mean)     
-    return r2
