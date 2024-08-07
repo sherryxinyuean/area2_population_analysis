@@ -181,8 +181,38 @@ def process_train_test(X,y,training_set,test_set):
     
     return X_flat_train,X_flat_test,y_train,y_test
 
+def predict_with_lag_DNN(dataset, trial_mask, align_field, align_range, train_lag, test_lags, x_field, y_field):
+    """Extracts spiking and kinematic data from selected trials and fits linear decoder"""
+    # Extract rate data from selected trials
+    vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
+    # Lag alignment for kinematics and extract kinematics data from selected trials
+    lag_align_range = (align_range[0] + train_lag, align_range[1] + train_lag)
+    rates_df = dataset.make_trial_data(align_field=align_field, align_range=lag_align_range, ignored_trials=~trial_mask)
+    
+    dnn_all = DenseNNDecoder(units=400,dropout=0.25,num_epochs=10)
+    rates_array = rates_df[x_field].to_numpy()
+    X = (rates_array - np.nanmean(rates_array,axis=0))/np.nanstd(rates_array,axis=0)
+    vel_array = vel_df[y_field].to_numpy()
+    Y = vel_array - np.nanmean(vel_array,axis=0)
+    dnn_all.fit(X, Y)
 
-def pred_with_new_weights(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, sub_weights, sub_offset, train_range, train_lag_range, train_mask):
+    r2_array = []
+    for test_lag in test_lags:
+        lag_align_range_test = (align_range[0] + test_lag, align_range[1] + test_lag)
+        rates_df_test = dataset.make_trial_data(align_field=align_field, align_range=lag_align_range_test, ignored_trials=~trial_mask)
+        rates_array_test = rates_df_test[x_field].to_numpy()
+        X_test = (rates_array_test - np.nanmean(rates_array,axis=0))/np.nanstd(rates_array,axis=0)
+        Y_hat = dnn_all.predict(X_test)
+        pred_vel = Y_hat + np.nanmean(vel_array,axis=0)
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y'], 2))], axis=1)
+
+        sses =get_sses_pred(vel_array,pred_vel)
+        sses_mean=get_sses_mean(vel_array)
+        R2 =1-np.sum(sses)/np.sum(sses_mean)     
+        r2_array.append(R2)
+    return r2_array, vel_df
+
+def pred_with_new_weights(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, weights, offset, train_range, train_lag_range, train_mask):
     """ Returns R2, r, and predictions using given weights, basically a matrix multiplication """
     vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
     lag_align_range = (align_range[0] + lag, align_range[1] + lag)
@@ -195,7 +225,7 @@ def pred_with_new_weights(dataset, trial_mask, align_field, align_range, lag, x_
     train_rates_array = train_rates_df[x_field].to_numpy()
 
     X = (rates_array - np.nanmean(train_rates_array,axis=0))/np.nanstd(train_rates_array,axis=0)
-    Y_hat = X@sub_weights.T + sub_offset
+    Y_hat = X@weights.T + offset
 
     train_vel_df = dataset.make_trial_data(align_field=align_field, align_range=train_range, ignored_trials=~train_mask)
     train_vel_array = train_vel_df[y_field].to_numpy()
@@ -236,7 +266,7 @@ def fit_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
     n_timepoints = int((align_range[1] - align_range[0])/dataset.bin_width)
     n_neurons = rates_df[x_field].shape[1]
 
-    lr_all = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)})
+    lr_all = GridSearchCV(Ridge(), {'alpha': np.logspace(-3, 3, 7)})
     rates_array = rates_df[x_field].to_numpy()
     X = (rates_array - np.nanmean(rates_array,axis=0))/np.nanstd(rates_array,axis=0)
     vel_array = vel_df[y_field].to_numpy()
@@ -248,6 +278,8 @@ def fit_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
         vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y'], 2))], axis=1)
     if vel_array.shape[-1] == 3:
         vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y','z'], 3))], axis=1)
+    else:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', num_channels=vel_array.shape[-1]))], axis=1)
     
     #     print(lr_all.best_params_['alpha'])
     
@@ -261,7 +293,7 @@ def fit_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
         for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
             #split training and testing by trials
             X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
-            lr = Ridge(alpha=lr_all.best_params_['alpha'])
+            lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-3, 3, 7)})
             lr.fit(X_train, y_train)
             y_test_predicted = lr.predict(X_test)
 
@@ -282,7 +314,7 @@ def fit_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
         for training_set, test_set in kf.split(range(0,n_trials)):
             #split training and testing by trials
             X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
-            lr = Ridge(alpha=lr_all.best_params_['alpha'])
+            lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-3, 3, 7)})
             lr.fit(X_train, y_train)
             y_test_predicted = lr.predict(X_test)
 
@@ -309,7 +341,7 @@ def fit_and_predict_lasso(dataset, trial_mask, align_field, align_range, lag, x_
     n_timepoints = int((align_range[1] - align_range[0])/dataset.bin_width)
     n_neurons = rates_df[x_field].shape[1]
 
-    lr_all = GridSearchCV(Lasso(), {'alpha': np.logspace(-4, 1, 6)})
+    lr_all = GridSearchCV(Lasso(), {'alpha': np.logspace(-3, 3, 7)})
     rates_array = rates_df[x_field].to_numpy()
     X = (rates_array - np.nanmean(rates_array,axis=0))/np.nanstd(rates_array,axis=0)
     vel_array = vel_df[y_field].to_numpy()
@@ -334,7 +366,7 @@ def fit_and_predict_lasso(dataset, trial_mask, align_field, align_range, lag, x_
         for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
             #split training and testing by trials
             X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
-            lr = Lasso(alpha=lr_all.best_params_['alpha'])
+            lr = GridSearchCV(Lasso(), {'alpha': np.logspace(-3, 3, 7)})
             lr.fit(X_train, y_train)
             y_test_predicted = lr.predict(X_test)
 
@@ -355,7 +387,7 @@ def fit_and_predict_lasso(dataset, trial_mask, align_field, align_range, lag, x_
         for training_set, test_set in kf.split(range(0,n_trials)):
             #split training and testing by trials
             X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
-            lr = Lasso(alpha=lr_all.best_params_['alpha'])
+            lr = GridSearchCV(Lasso(), {'alpha': np.logspace(-3, 3, 7)})
             lr.fit(X_train, y_train)
             y_test_predicted = lr.predict(X_test)
 
@@ -379,7 +411,7 @@ def fit_and_predict_weighted(dataset, trial_mask, align_field, align_range, lag,
     n_timepoints = int((align_range[1] - align_range[0])/dataset.bin_width)
     n_neurons = rates_df[x_field].shape[1]
 
-    lr_all = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)})
+    lr_all = GridSearchCV(Ridge(), {'alpha': np.logspace(-3, 3, 7)})
     rates_array = rates_df[x_field].to_numpy()
     X = (rates_array - np.nanmean(rates_array,axis=0))/np.nanstd(rates_array,axis=0)
     vel_array = vel_df[y_field].to_numpy()
@@ -407,7 +439,7 @@ def fit_and_predict_weighted(dataset, trial_mask, align_field, align_range, lag,
         for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
             #split training and testing by trials
             X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
-            lr = Ridge(alpha=lr_all.best_params_['alpha'])
+            lr =GridSearchCV(Ridge(), {'alpha': np.logspace(-3, 3, 7)})
             lr.fit(X_train, y_train,sample_weight = np.tile(sw,training_set.shape[0]))
             y_test_predicted = lr.predict(X_test)
             
@@ -428,7 +460,7 @@ def fit_and_predict_weighted(dataset, trial_mask, align_field, align_range, lag,
         for training_set, test_set in kf.split(range(0,n_trials)):
             #split training and testing by trials
             X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
-            lr = Ridge(alpha=lr_all.best_params_['alpha'])
+            lr =GridSearchCV(Ridge(), {'alpha': np.logspace(-3, 3, 7)})
             lr.fit(X_train, y_train,sample_weight = np.tile(sw,training_set.shape[0]))
             y_test_predicted = lr.predict(X_test)
             
@@ -527,7 +559,7 @@ def sub_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
     vel_array = vel_df[y_field].to_numpy()
     Y = vel_array - np.nanmean(vel_array,axis=0)
     
-    lr_all = GridSearchCV(Ridge(), {'alpha': np.logspace(-4, 1, 6)})
+    lr_all = GridSearchCV(Ridge(), {'alpha': np.logspace(-3, 3, 7)})
     lr_all.fit(X_sub, Y)
     Y_hat = lr_all.predict(X_sub)
     pred_vel = Y_hat + np.nanmean(vel_array,axis=0)
@@ -535,6 +567,8 @@ def sub_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
         vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y'], 2))], axis=1)
     if vel_array.shape[-1] == 3:
         vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y','z'], 3))], axis=1)
+    else:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', num_channels=vel_array.shape[-1]))], axis=1)
     
 #     print(lr_all.best_params_['alpha'])
     
@@ -548,7 +582,7 @@ def sub_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
         for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
             #split training and testing by trials
             X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
-            lr = Ridge(alpha=lr_all.best_params_['alpha'])
+            lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-3, 3, 7)})
             lr.fit(X_train, y_train)
             y_test_predicted = lr.predict(X_test)
             
@@ -569,7 +603,7 @@ def sub_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
         for training_set, test_set in kf.split(range(0,n_trials)):
             #split training and testing by trials
             X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
-            lr = Ridge(alpha=lr_all.best_params_['alpha'])
+            lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-3, 3, 7)})
             lr.fit(X_train, y_train)
             y_test_predicted = lr.predict(X_test)
             
@@ -583,3 +617,55 @@ def sub_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
         R2 =1-np.sum(sses)/np.sum(sses_mean)     
         return R2, lr_all.best_estimator_.coef_, lr_all.best_estimator_.intercept_, vel_df        
  
+
+def fit_and_predict_WienerCascade(dataset, trial_mask, align_field, align_range, lag, n_degree, x_field, y_field,cond_dict):
+    """ Fits ridge regression and returns R2, regression weights, and predictions """
+    # Extract kinematics data from selected trials
+    vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
+    # Lag alignment for rates and extract rates data from selected trials
+    lag_align_range = (align_range[0] + lag, align_range[1] + lag)
+    rates_df = dataset.make_trial_data(align_field=align_field, align_range=lag_align_range, ignored_trials=~trial_mask)
+    
+    n_trials = rates_df['trial_id'].nunique()
+    n_timepoints = int((align_range[1] - align_range[0])/dataset.bin_width)
+    n_neurons = rates_df[x_field].shape[1]
+
+    lr_all = GridSearchCV(Ridge(), {'alpha': np.logspace(-3, 3, 7)})
+    rates_array = rates_df[x_field].to_numpy()
+    X = (rates_array - np.nanmean(rates_array,axis=0))/np.nanstd(rates_array,axis=0)
+    vel_array = vel_df[y_field].to_numpy()
+    Y = vel_array - np.nanmean(vel_array,axis=0)
+    lr_all.fit(X, Y)
+    Y_hat_linear = lr_all.predict(X)
+    poly_x = np.polyfit(Y_hat_linear[:,0],Y[:,0],n_degree)
+    poly_y = np.polyfit(Y_hat_linear[:,1],Y[:,1],n_degree)
+    Y_hat = np.hstack([np.polyval(poly_x,Y_hat_linear[:,0])[:,np.newaxis],np.polyval(poly_y,Y_hat_linear[:,1])[:,np.newaxis]])
+    pred_vel = Y_hat + np.nanmean(vel_array,axis=0)
+    vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y'], 2))], axis=1)
+    
+    rates_array = rates_array.reshape(n_trials, n_timepoints, n_neurons)
+    vel_array = vel_array.reshape(n_trials, n_timepoints, -1)
+    skf = StratifiedKFold(n_splits=5,shuffle=True,random_state = 42)   
+    true_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
+    pred_concat = nans([n_trials*n_timepoints,vel_array.shape[-1]])
+    trial_save_idx = 0
+    for training_set, test_set in skf.split(range(0,n_trials),cond_dict):
+        #split training and testing by trials
+        X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
+        lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-3, 3, 7)})
+        lr.fit(X_train, y_train)
+        y_train_predicted_linear=lr.predict(X_train)
+
+        p_x = np.polyfit(y_train_predicted_linear[:,0],y_train[:,0],n_degree)
+        p_y = np.polyfit(y_train_predicted_linear[:,1],y_train[:,1],n_degree)
+        
+        y_test_predicted_linear = lr.predict(X_test)
+        y_test_predicted = np.hstack([np.polyval(p_x,y_test_predicted_linear[:,0])[:,np.newaxis],np.polyval(p_y,y_test_predicted_linear[:,1])[:,np.newaxis]])
+        n = y_test_predicted.shape[0]
+        true_concat[trial_save_idx:trial_save_idx+n,:] = y_test
+        pred_concat[trial_save_idx:trial_save_idx+n,:] = y_test_predicted
+        trial_save_idx += n
+    sses =get_sses_pred(true_concat,pred_concat)
+    sses_mean=get_sses_mean(true_concat)
+    R2 =1-np.sum(sses)/np.sum(sses_mean)     
+    return R2, lr_all.best_estimator_.coef_, lr_all.best_estimator_.intercept_, vel_df

@@ -5,6 +5,7 @@
 *.nwb
 *.mat
 *.csv
+*.svg
 *.png
 *.pyc
 *.rtf
@@ -20,3 +21,6 @@
 ClassyDataAnalysis-master/
 *.eps
 s1-kinematics/
+*.key
+*.pptx
+*.docx

@@ -804,14 +804,14 @@ def area2_to_nwb(
         io.write(nwbfile)
 
 if __name__ == "__main__":
-    file_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/raeed/Lando_20170731_COactpas_TD.mat')
+    # file_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/raeed/Han_20171207_COactpas_TD.mat')
 
-    
+    file_path = Path("/Volumes/TOSHIBA EXT/sherry/area2/raeed/Chips_20170913_COactpas_TD.mat")
     # file_path = Path('/snel/share/share/data/raeed_s1/Han_20171116_COactpas_TD-2.mat')
     # file_path = Path('/home/fpei2/lvm/data/orig/Han_20171204_COactpas_TD_1ms.mat')
     # file_path = Path('/home/fpei2/lvm/data/orig/Han_20171207_COactpas_TD_1ms.mat')
 
-    save_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/actpas_NWB/Lando_20170731_COactpas_TD.nwb')
+    save_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/actpas_NWB/Chips_20170913_COactpas_TD.nwb')
 
     area2_to_nwb(
         file_path=file_path,
