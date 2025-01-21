@@ -78,7 +78,7 @@ class WeightedPCA(object):   ### ADD attributes section at beginning
         """
 
         Xw=X*sample_weight
-        svd=TruncatedSVD(self.n_components)
+        svd=TruncatedSVD(self.n_components,random_state=42)
         svd.fit(Xw)
         self.components_ = svd.components_
 

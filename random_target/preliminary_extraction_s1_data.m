@@ -12,18 +12,33 @@ neur_bin_size=.05; %Bin size for neural data
 if load_data
     
     addpath(genpath('/Users/sherryan/area2_population_analysis/random-target/ClassyDataAnalysis-master'));
-    load_folder='/Users/sherryan/area2_population_analysis/random-target/';
+    load_folder='/Users/sherryan/area2_population_analysis/random_target/';
     load([load_folder 'Han_20160325_RW_hold_area2_001_cds'])
     
 end
+
+%% Get reaching directions
+directions = nan(height(cds.trials),1);
+tgtVar = cds.trials.tgtCtr;
+for i = 2:height(cds.trials)
+    x1 = tgtVar(i-1,1);
+    y1 = tgtVar(i-1,2);
+    x2 = tgtVar(i,1); 
+    y2 = tgtVar(i,2);
+    directions(i) = atan2d(y2-y1,x2-x1);
+end
+tgtVar = [tgtVar directions];
+
 %% Times to use
 
 col_start_time = 2;
 col_end_time = 3;
+col_go_cue_time = 5;
 
 wdw_start = table2array(cds.trials([cds.trials.result]=='R',col_start_time));
 % get rewarded trials
 wdw_end = table2array(cds.trials([cds.trials.result]=='R',col_end_time));
+wdw_go_cue = table2array(cds.trials([cds.trials.result]=='R',col_go_cue_time));
 
 num_rewarded_trials = length(wdw_start);
 
@@ -32,24 +47,43 @@ good_trials_idx = find(trial_length >= 0.5 & trial_length <= 2.5);
 num_good_trials = length(good_trials_idx);
 
 edges=cell(num_good_trials,1); 
+go_cue_bin = nan(num_good_trials,1);
 for i = 1:num_good_trials
     trial_idx = good_trials_idx(i);
     edges{i} = wdw_start(trial_idx)-.5:dt:wdw_end(trial_idx)+.5;
+    go_cue_bin(i)=find(wdw_start(trial_idx):dt:wdw_end(trial_idx)>=wdw_go_cue(trial_idx),1,'first');
 end
+
+tgtVar = tgtVar(good_trials_idx,:);
+trial_length = trial_length(good_trials_idx,:);
 
 %% Get neural data
 
-good_units=find([cds.units.ID]~=0 & [cds.units.ID]~=255);
+% good_units=find([cds.units.ID]~=0 & [cds.units.ID]~=255);
+good_units=find([cds.units.ID]~=255);
 num_units=length(good_units);
-
-neural_data = cell(num_good_trials,1);
+good_neural_data = cell(num_good_trials,1);
 for i = 1:num_good_trials
     edge = edges{i};
     temp = nan(num_units,length(edge)-1);
     for nrn_num = 1:num_units
-        temp(nrn_num,:) = histcounts(table2array(cds.units(nrn_num).spikes(:,1)),edge);
+        nrn_idx = good_units(nrn_num);
+        temp(nrn_num,:) = histcounts(table2array(cds.units(nrn_idx).spikes(:,1)),edge);
     end
-    neural_data{i} = temp.';
+    good_neural_data{i} = temp.';
+end
+
+good_units=find([cds.units.ID]~=999);
+num_units = width(cds.units);
+all_neural_data = cell(num_good_trials,1);
+for i = 1:num_good_trials
+    edge = edges{i};
+    temp = nan(num_units,length(edge)-1);
+    for nrn_num = 1:num_units
+        nrn_idx = good_units(nrn_num);
+        temp(nrn_num,:) = histcounts(table2array(cds.units(nrn_idx).spikes(:,1)),edge);
+    end
+    all_neural_data{i} = temp.';
 end
 
 % length(neural_data_temp) = [num_good_trials]; 
@@ -79,9 +113,9 @@ for i = 1:num_good_trials
 end
 
 %% Save data
-save_folder='/Users/sherryan/area2_population_analysis/random-target/';
+save_folder='/Users/sherryan/area2_population_analysis/random_target/';
 %
-save([save_folder 's1_data_trialized'],'neural_data','position','velocity','acceleration')
+save([save_folder 's1_all_units_trialized'],'good_neural_data','all_neural_data','position','velocity','acceleration','tgtVar','trial_length')
 
 
 %% Put things in bins

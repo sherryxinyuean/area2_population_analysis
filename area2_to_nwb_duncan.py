@@ -114,8 +114,8 @@ def calculate_onset(
         # ddm = np.pad(ddm, (0, len(trial_data)-len(ddm)), 'edge')
 
 
-        dm = np.diff(trial_data, prepend=[trial_data[0]])
-        ddm = np.diff(dm, prepend=[dm[0]])
+        dm = np.diff(trial_data, prepend=[trial_data[0]]) #d speed
+        ddm = np.diff(dm, prepend=[dm[0]]) #dd speed
 
         # get peak accels by descending zero crossings of jerk
         peaks = (ddm > 0) & (np.pad(ddm, (0,1))[1:] < 0)
@@ -141,6 +141,121 @@ def calculate_onset(
     onset_series = pd.Series(onset_list, index=ti.index)
     return onset_series
 
+def calculate_offset(
+    data: np.ndarray,
+    timestamps: np.ndarray,
+    trial_info: pd.DataFrame,
+    start_field='end_time',
+    min_ds=1,
+    s_thresh=5,
+    start_offset = 0,
+    end_offset = 1200,
+    trial_offset=2000, # ms
+    peak_divisor=10,
+    ignored_trials=None
+):
+    """Calculates movement onset, inspired by the 'peak' method in 
+    Matt Perich's MATLAB implementation here: 
+    https://github.com/mattperich/TrialData/blob/master/Tools/getMoveOnsetAndPeak.m
+    
+    Parameters
+    ----------
+    data : np.ndarray
+        1d array containing speed
+    timestamps : np.ndarray
+        1d array containing timestamps, in seconds, corresponding to `data`
+    trial_info : pd.DataFrame
+        DataFrame containing trial info
+    start_field: str
+        The field name of the start of the window to consider.
+    end_field: str
+        The field name of the end of the window to consider.
+    min_ds: float
+        The minimum diff (speed) to find movement onset, by default 1.9
+    s_thresh: float
+        Speed threshold (secondary method if first fails)
+    peak_offset: float
+        The number of ms after start_field to find max speed
+    start_offset: float,
+        The number of ms after start_field to find movement onset
+    peak_divisor: float
+        The number to divide the peak by to find the threshold.
+    ignored_trials: pd.Series
+        The trials to ignore for this calculation.
+    """
+    # Ignore trials that don't have the required fields
+    if ignored_trials is None:
+        ignored_trials == pd.Series(False, index=trial_info.index)
+    ignored_trials = (
+        trial_info[start_field].isnull()
+        | ignored_trials
+    )
+    ti = trial_info[~ignored_trials]
+    offset_list = []
+    for index, row in ti.iterrows():
+        offset = np.nan
+        # mask into specific trial
+        min_time = row[start_field] + start_offset*0.001
+        min_peak_time = row[start_field] + end_offset*0.001
+        max_time = row[start_field] + trial_offset * 0.001
+
+        trial_timestamps = timestamps[(timestamps >= min_time) & (timestamps < max_time)]
+        trial_data = data[(timestamps >= min_time) & (timestamps < max_time)]
+        if np.any(np.isnan(trial_data)):
+            offset_list.append(offset)
+            continue
+        # make masks for valid peaks/offsets
+        # move_start = start_time + start_offset * 0.001
+        # peak_start = start_time + peak_offset * 0.001
+        valid_end = trial_timestamps >= min_peak_time
+        valid_peak = trial_timestamps >= min_time
+        # get acceleration and jerk
+
+        # trial_data_binned = np.empty(int(len(trial_data)/10), dtype=float)
+        # trial_data_binned.fill(np.nan)
+        # for i in range(0,int(len(trial_data)/10)):
+        #     trial_data_binned[i] = np.mean(trial_data[i*10:i*10+10])
+
+        # dm = np.diff(trial_data_binned, prepend=[trial_data_binned[0]])
+        # ddm = np.diff(dm, prepend=[dm[0]])
+
+        # dm = np.repeat(dm, 10)
+        # ddm = np.repeat(ddm, 10)
+        # dm = np.pad(dm, (0, len(trial_data)-len(dm)), 'edge')
+        # ddm = np.pad(ddm, (0, len(trial_data)-len(ddm)), 'edge')
+
+
+        dm = np.diff(trial_data, prepend=[trial_data[0]])
+        ddm = np.diff(dm, prepend=[dm[0]])
+
+        # get peak accels by descending zero crossings of jerk
+        peaks = (ddm > 0) & (np.pad(ddm, (0,1))[1:] < 0)
+        accel_peaks = peaks & valid_peak & (dm > min_ds) 
+        peak_speeds = trial_data[accel_peaks]
+
+
+        # if peaks found, find offset
+        if accel_peaks.sum() > 0:
+            second_peak = np.nonzero(accel_peaks)[0][-1]
+            # second_peak = np.nonzero(accel_peaks)[0][0]
+            # if accel_peaks.sum() > 1:
+            #     second_peak = np.nonzero(accel_peaks)[0][np.max(peak_speeds.argsort()[-2:][::-1])]
+            peak_accel = dm[second_peak]
+            threshold = peak_accel / peak_divisor
+            below_threshold = (dm < 0) & (abs(dm) < abs(threshold)) & valid_end & (np.arange(len(dm)) > second_peak) & (trial_data < trial_data[second_peak]/peak_divisor)
+            # print(trial_data[below_threshold])
+            if below_threshold.sum() > 0:
+                thresh_crossing = np.min(np.nonzero(below_threshold)[0])
+                offset = trial_timestamps[thresh_crossing]
+
+        if np.isnan(offset):
+            above_threshold = (trial_data < s_thresh) & valid_end
+            if above_threshold.sum() > 0:
+                thresh_crossing = np.min(np.nonzero(above_threshold)[0])
+                offset = trial_timestamps[thresh_crossing]
+        offset_list.append(offset)
+    offset_series = pd.Series(offset_list, index=ti.index)
+    return offset_series
 
 def get_pair_xcorr(
     spikes,
@@ -635,10 +750,10 @@ def area2_to_nwb(
         trial_info=trial_info_df,
         start_field='go_cue_time',
         end_field='stop_time',
-        min_ds=.1,
+        min_ds=1,
         s_thresh=5,
-        peak_offset=10, # ms
-        start_offset=10, # ms
+        peak_offset=-100, # ms
+        start_offset=-100, # ms
         peak_divisor=10,
         ignored_trials=(trial_info_df.ctr_hold_bump==1)
     )
@@ -648,13 +763,14 @@ def area2_to_nwb(
         trial_info=trial_info_df,
         start_field='bump_time',
         end_field='go_cue_time',
-        min_ds=.1,
+        min_ds=1,
         s_thresh=5,
-        peak_offset=-100, # ms
-        start_offset=-100, # ms
+        peak_offset=-20, # ms
+        start_offset=-20, # ms
         peak_divisor=10,
         ignored_trials=(trial_info_df.ctr_hold_bump!=1)
     )
+
     trial_info_df['move_onset'] = pd.concat([act_move_onset, pas_move_onset], axis=0)
     nwbfile.add_trial_column(
         'move_onset_time', 
@@ -666,6 +782,32 @@ def area2_to_nwb(
             f"Computed movement onset time for {(~trial_info_df['move_onset'].isna()).sum()} "
             f"out of {len(trial_info_df)} trials"
         )
+
+    act_move_offset = calculate_offset(
+        data=speed,
+        timestamps=np.round(np.arange(ds['vel'].shape[1]) * bin_width, 6),
+        trial_info=trial_info_df,
+        start_field='move_onset',
+        min_ds=.1,
+        s_thresh=5,
+        start_offset = 0,
+        end_offset = 1250,
+        trial_offset=1750, # ms
+        peak_divisor=10,
+        ignored_trials=(trial_info_df.ctr_hold_bump==1)
+    )
+
+    trial_info_df['move_offset'] = pd.concat([act_move_offset, pas_move_onset], axis=0)
+    nwbfile.add_trial_column(
+        'move_offset_time', 
+        'Time of move offset',
+        data=trial_info_df['move_offset'].to_numpy(),
+    )
+    if verbose:
+        print(
+            f"Computed movement offset time for {(~trial_info_df['move_offset'].isna()).sum()} "
+            f"out of {len(trial_info_df)} trials"
+        )    
 
     ############################
     ###   ECEPHYS METADATA   ###
@@ -815,7 +957,7 @@ if __name__ == "__main__":
     # file_path = Path('/home/fpei2/lvm/data/orig/Han_20171204_COactpas_TD_1ms.mat')
     # file_path = Path('/home/fpei2/lvm/data/orig/Han_20171207_COactpas_TD_1ms.mat')
 
-    save_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/actpas_NWB/Duncan_20190710_COactpas_reformat.nwb')
+    save_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/actpas_NWB/Duncan_20190710_COactpas_offset2.nwb')
 
     area2_to_nwb(
         file_path=file_path,
