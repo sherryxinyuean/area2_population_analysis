@@ -28,6 +28,13 @@ def r2_score(y_true, y_pred):
     ss_res = np.sum((y_true - y_pred) ** 2)
     return 1 - (ss_res / ss_tot)
 
+def r2_score(y_true, y_pred):
+    """Calculates the R-squared score."""
+    y_mean = np.mean(y_true)
+    ss_tot = np.sum((y_true - y_mean) ** 2)
+    ss_res = np.sum((y_true - y_pred) ** 2)
+    return 1 - (ss_res / ss_tot)
+
 def nans(shape, dtype=float):
     """ Returns array of NaNs with defined shape"""
     a = np.empty(shape, dtype)
@@ -76,6 +83,31 @@ def calc_proj(R, w):
     """ Returns projection of R(ates) onto the space defined by w """
     P = calc_proj_matrix(w)
     return P@R.T
+
+from scipy.linalg import svd
+
+def principal_angles(X, Y):
+    """
+    Calculate the principal angles between two subspaces spanned by non-orthonormal matrices X and Y.
+    
+    Parameters:
+    X (numpy.ndarray): Basis matrix for subspace A (m x n)
+    Y (numpy.ndarray): Basis matrix for subspace B (m x n)
+    
+    Returns:
+    numpy.ndarray: Principal angles in radians
+    """
+    # Step 1: Orthonormalize X and Y using QR decomposition
+    Qx, _ = np.linalg.qr(X)
+    Qy, _ = np.linalg.qr(Y)
+    
+    # Step 2: Perform SVD on the dot product of Qx^T and Qy
+    _, sigma, _ = svd(np.dot(Qx.T, Qy))
+    
+    # Step 3: Compute the principal angles in radians
+    principal_angles_radians = np.arccos(np.clip(sigma, -1, 1))
+    
+    return principal_angles_radians
 
 from scipy.linalg import svd
 
@@ -212,6 +244,34 @@ def process_train_test(X,y,training_set,test_set):
     y_test=y_test-y_train_mean    
     
     return X_flat_train,X_flat_test,y_train,y_test
+
+# same as process_train_test, keep 3d dim for filter 
+def process_train_test_keep_dim(X,y,training_set,test_set):
+    """ Returns flattened X_train, X_test, y_train, y_test, tailored for the data in trial structure """
+    X_train = X[training_set,:,:]
+    X_test = X[test_set,:,:]
+    y_train = y[training_set,:,:]
+    y_test = y[test_set,:,:]
+
+    #flat by trials
+    X_flat_train = X_train.reshape((X_train.shape[0]*X_train.shape[1]),X_train.shape[2])
+    X_flat_test = X_test.reshape((X_test.shape[0]*X_test.shape[1]),X_test.shape[2])
+    y_flat_train = y_train.reshape((y_train.shape[0]*y_train.shape[1]),y_train.shape[2])
+    y_flat_test = y_test.reshape((y_test.shape[0]*y_test.shape[1]),y_test.shape[2])
+    
+    X_flat_train_mean=np.nanmean(X_flat_train,axis=0)
+    X_flat_train_std=np.nanstd(X_flat_train,axis=0)   
+
+    X_flat_train=(X_flat_train-X_flat_train_mean)/X_flat_train_std
+    X_flat_test=(X_flat_test-X_flat_train_mean)/X_flat_train_std
+
+    y_flat_train_mean = np.mean(y_flat_train,axis=0)
+    y_flat_train = y_flat_train - y_flat_train_mean
+    y_flat_test = y_flat_test - y_flat_train_mean    
+    
+    return X_flat_train.reshape(X_train.shape[0],X_train.shape[1],X_train.shape[2]), X_flat_test.reshape(X_test.shape[0],X_test.shape[1],X_test.shape[2]), \
+        y_flat_train.reshape(y_train.shape[0],y_train.shape[1],y_train.shape[2]), y_flat_test.reshape(y_test.shape[0],y_test.shape[1],y_test.shape[2])
+
 
 # same as process_train_test, keep 3d dim for filter 
 def process_train_test_keep_dim(X,y,training_set,test_set):
@@ -496,6 +556,9 @@ def sub_and_predict_lasso(dataset, trial_mask, align_field, align_range, lag, x_
     lag_align_range = (align_range[0] + lag, align_range[1] + lag)
     rates_df = dataset.make_trial_data(align_field=align_field, align_range=lag_align_range, ignored_trials=~trial_mask)
     
+    n_trials = rates_df['trial_id'].nunique()
+    n_timepoints = int((align_range[1] - align_range[0])/dataset.bin_width)
+    n_neurons = rates_df[x_field].shape[1]
     n_trials = rates_df['trial_id'].nunique()
     n_timepoints = int((align_range[1] - align_range[0])/dataset.bin_width)
     n_neurons = rates_df[x_field].shape[1]
