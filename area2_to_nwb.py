@@ -110,17 +110,17 @@ def calculate_onset(
         # ddm = np.pad(ddm, (0, len(trial_data)-len(ddm)), 'edge')
 
 
-        dm = np.diff(trial_data, prepend=[trial_data[0]])
-        ddm = np.diff(dm, prepend=[dm[0]])
+        dm = np.diff(trial_data, prepend=[trial_data[0]]) #acceleration
+        ddm = np.diff(dm, prepend=[dm[0]]) #jerk
 
         # get peak accels by descending zero crossings of jerk
-        peaks = (ddm > 0) & (np.pad(ddm, (0,1))[1:] < 0)
-        accel_peaks = peaks & valid_peak & (dm > min_ds) & valid_move
+        peaks = (ddm > 0) & (np.pad(ddm, (0,1))[1:] < 0) 
+        accel_peaks = peaks & valid_peak & (dm > min_ds) & valid_move # zero crossing of jerk = acceleration peak > min_ds
         # if peaks found, find onset
         if accel_peaks.sum() > 0:
             # find first peak and compute threshold
             first_peak = np.nonzero(accel_peaks)[0][0]
-            peak_accel = dm[first_peak]
+            peak_accel = dm[first_peak] 
             threshold = peak_accel / peak_divisor
             below_threshold = (dm < threshold) & valid_move & (np.arange(len(dm)) < first_peak)
             if below_threshold.sum() > 0:
@@ -243,12 +243,15 @@ def calculate_offset(
             if below_threshold.sum() > 0:
                 thresh_crossing = np.min(np.nonzero(below_threshold)[0])
                 offset = trial_timestamps[thresh_crossing]
-
+                if (trial_data[thresh_crossing] > s_thresh*2):
+                    offset = np.nan
         if np.isnan(offset):
             above_threshold = (trial_data < s_thresh) & valid_end
             if above_threshold.sum() > 0:
                 thresh_crossing = np.min(np.nonzero(above_threshold)[0])
                 offset = trial_timestamps[thresh_crossing]
+                if (trial_data[thresh_crossing] > s_thresh*2):
+                    offset = np.nan
         offset_list.append(offset)
     offset_series = pd.Series(offset_list, index=ti.index)
     return offset_series
@@ -750,7 +753,7 @@ def area2_to_nwb(
         s_thresh=5,
         peak_offset=200, # ms
         start_offset=200, # ms
-        peak_divisor=10,
+        peak_divisor=5,
         ignored_trials=(trial_info_df.ctr_hold_bump)
     )
     pas_move_onset = calculate_onset(
@@ -761,9 +764,9 @@ def area2_to_nwb(
         end_field='go_cue_time',
         min_ds=.1,
         s_thresh=5,
-        peak_offset=-100, # ms
-        start_offset=-100, # ms
-        peak_divisor=10,
+        peak_offset=-50, # ms
+        start_offset=-50, # ms
+        peak_divisor=5,
         ignored_trials=(~trial_info_df.ctr_hold_bump)
     )
     trial_info_df['move_onset'] = pd.concat([act_move_onset, pas_move_onset], axis=0)
@@ -783,12 +786,12 @@ def area2_to_nwb(
         timestamps=np.round(np.arange(ds['vel'].shape[1]) * bin_width, 6),
         trial_info=trial_info_df,
         start_field='move_onset',
-        min_ds=.1,
+        min_ds=.01,
         s_thresh=5,
         start_offset = 0,
         end_offset = 1250,
         trial_offset=1750, # ms
-        peak_divisor=10,
+        peak_divisor=5,
         ignored_trials=(trial_info_df.ctr_hold_bump)
     )
 
@@ -968,7 +971,7 @@ if __name__ == "__main__":
     # file_path = Path('/home/fpei2/lvm/data/orig/Han_20171204_COactpas_TD_1ms.mat')
     # file_path = Path('/home/fpei2/lvm/data/orig/Han_20171207_COactpas_TD_1ms.mat')
 
-    save_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/actpas_NWB/Han_20171207_COactpas_TD_offset2.nwb')
+    save_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/actpas_NWB/Han_20171207_COactpas_TD_offset6.nwb')
 
     area2_to_nwb(
         file_path=file_path,

@@ -12,6 +12,9 @@ import scipy.stats
 import numpy
 from scipy.ndimage import correlate1d
 import numbers
+import pandas as pd
+from sklearn.metrics import r2_score
+from scipy.signal import convolve
 
 def get_sses_pred(y_test,y_test_pred):
     sse=np.sum((y_test_pred-y_test)**2,axis=0)
@@ -1288,6 +1291,82 @@ def retrieve_LDGF(dataset, trial_mask, align_field, align_range, lag, x_field, y
     return ldgf_all, vel_df, sigmas
 
 
+def pred_with_new_LDGF(dataset, filter_type, trial_mask, align_field, align_range, lag, x_field, y_field, weights, offset, sigmas, train_align_field, train_range, train_best_lag, train_mask,filter_length=81):
+    def gaussian_filter(x, sigma,filter_length):
+        return np.exp(-0.5*((x)/sigma)**2)
+    def causal_filter(x, sigma,filter_length):
+        phi_x = np.exp(-0.5*((x)/sigma)**2)
+        phi_x[:filter_length//2] = 0
+        return phi_x
+    def anticausal_filter(x, sigma,filter_length):
+        phi_x = np.exp(-0.5*((x)/sigma)**2)
+        phi_x[-filter_length//2+1:] = 0
+        return phi_x
+    x_range = np.arange(-filter_length//2+1, filter_length//2+1)
+    """ Returns R2, r, and predictions using given weights, basically a matrix multiplication """
+    vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
+
+    lag_align_range = (align_range[0] + lag, align_range[1] + lag)
+    rates_df = dataset.make_trial_data(align_field=align_field, align_range=lag_align_range, ignored_trials=~trial_mask)
+    n_trials = rates_df['trial_id'].nunique()
+    n_timepoints = int((align_range[1] - align_range[0])/dataset.bin_width)
+
+    rates_array = rates_df[x_field].to_numpy()
+    vel_array = vel_df[y_field].to_numpy()
+
+    train_lag_range = (train_range[0] + train_best_lag, train_range[1] + train_best_lag)
+    train_rates_df = dataset.make_trial_data(align_field=train_align_field, align_range=train_lag_range, ignored_trials=~train_mask, allow_overlap=True)
+    train_rates_array = train_rates_df[x_field].to_numpy()
+
+    X = (rates_array - np.nanmean(train_rates_array,axis=0))/np.nanstd(train_rates_array,axis=0)
+    Y_hat = X@weights.T + offset
+    Y_hat_reshaped = Y_hat.reshape(n_trials, n_timepoints, vel_array.shape[-1])
+
+    if filter_type == 'causal':
+        filter_list = [causal_filter(x_range,sigmas[j],filter_length) for j in range(len(sigmas))]
+    elif filter_type == 'gaussian':
+        filter_list = [gaussian_filter(x_range,sigmas[j],filter_length) for j in range(len(sigmas))]
+    elif filter_type == 'anti-causal':
+        filter_list = [anticausal_filter(x_range,sigmas[j],filter_length) for j in range(len(sigmas))]
+    else:
+        print('error: filter type not specified')
+        return
+    
+    Y_hat_with_filter = np.array([np.apply_along_axis(convolve, 1, Y_hat_reshaped[:,:,j], filter, mode='same') for j, filter in enumerate(filter_list)]).transpose(1, 2, 0)
+
+
+    train_vel_df = dataset.make_trial_data(align_field=train_align_field, align_range=train_range, ignored_trials=~train_mask, allow_overlap=True)
+    train_vel_array = train_vel_df[y_field].to_numpy()
+    Y_hat_trunc = Y_hat_with_filter[:,filter_length//2:-filter_length//2+1,:]
+    y_pred = (Y_hat_trunc + np.nanmean(train_vel_array,axis=0))
+    pred_vel = y_pred.reshape(-1, vel_array.shape[-1])
+
+    y = vel_array.reshape(n_trials, n_timepoints, -1)
+    y_trunc = y[:,filter_length//2:-filter_length//2+1,:] #match valid size
+    true_vel = y_trunc.reshape(-1, vel_array.shape[-1])
+            
+    R2_array = nans([true_vel.shape[1]])
+    for i in range(true_vel.shape[1]):
+        sses =get_sses_pred(true_vel[:,i],pred_vel[:,i])
+        sses_mean=get_sses_mean(true_vel[:,i])
+        R2_array[i] =1-np.sum(sses)/np.sum(sses_mean)    
+
+    
+    sses =get_sses_pred(true_vel,pred_vel)
+    sses_mean=get_sses_mean(true_vel)
+    R2 =1-np.sum(sses)/np.sum(sses_mean)     
+    
+    r = scipy.stats.pearsonr(true_vel.reshape(-1), pred_vel.reshape(-1))[0]
+    
+    if vel_array.shape[-1] == 2:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y'], 2))], axis=1)
+    elif vel_array.shape[-1] == 3:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y','z'], 3))], axis=1)
+    else:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', num_channels=vel_array.shape[-1]))], axis=1)
+    
+    return R2, r, R2_array, vel_df
+
 # def sub_and_predict_LDGF(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, weights,cond_dict = None, filter=True,init=None):
 #     """ Subtracts neural projection onto a certain subspace defined by weights and fits another LDGF """
 #     vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
@@ -1400,8 +1479,7 @@ def retrieve_LDGF(dataset, trial_mask, align_field, align_range, lag, x_field, y
 #             return R2, R2_wo, ldgf_all, vel_df, R2_array
         
 
-import pandas as pd
-from sklearn.metrics import r2_score
+
 def fit_and_predict_weighted(dataset, trial_mask, align_field, align_range, lag, x_field, y_field, cond_dict=None):
     """ Fits weighted ridge regression and returns R2, regression weights, and predictions """
     vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)

@@ -87,9 +87,9 @@ def calculate_onset(
 
         trial_timestamps = timestamps[(timestamps >= move_start) & (timestamps < end_time)]
         trial_data = data[(timestamps >= move_start) & (timestamps < end_time)]
-        print(start_time)
-        print(move_start)
-        print(end_time)
+        # print(start_time)
+        # print(move_start)
+        # print(end_time)
         if np.any(np.isnan(trial_data)):
             onset_list.append(onset)
             continue
@@ -98,6 +98,7 @@ def calculate_onset(
         # peak_start = start_time + peak_offset * 0.001
         valid_move = trial_timestamps >= move_start
         valid_peak = trial_timestamps >= peak_start
+
         # get acceleration and jerk
 
         # trial_data_binned = np.empty(int(len(trial_data)/10), dtype=float)
@@ -131,12 +132,15 @@ def calculate_onset(
                 thresh_crossing = np.max(np.nonzero(below_threshold)[0])
                 onset = trial_timestamps[thresh_crossing]
 
-
         if np.isnan(onset):
             above_threshold = (trial_data > s_thresh) & valid_move
             if above_threshold.sum() > 0:
                 thresh_crossing = np.min(np.nonzero(above_threshold)[0])
                 onset = trial_timestamps[thresh_crossing]
+        
+        if (trial_data[thresh_crossing] > s_thresh*2):
+            onset = np.nan
+
         onset_list.append(onset)
     onset_series = pd.Series(onset_list, index=ti.index)
     return onset_series
@@ -253,6 +257,10 @@ def calculate_offset(
             if above_threshold.sum() > 0:
                 thresh_crossing = np.min(np.nonzero(above_threshold)[0])
                 offset = trial_timestamps[thresh_crossing]
+        
+        if (trial_data[thresh_crossing] > s_thresh*2):
+            offset = np.nan
+
         offset_list.append(offset)
     offset_series = pd.Series(offset_list, index=ti.index)
     return offset_series
@@ -752,9 +760,9 @@ def area2_to_nwb(
         end_field='stop_time',
         min_ds=1,
         s_thresh=5,
-        peak_offset=-100, # ms
-        start_offset=-100, # ms
-        peak_divisor=10,
+        peak_offset=0, # ms
+        start_offset=0, # ms
+        peak_divisor=5,
         ignored_trials=(trial_info_df.ctr_hold_bump==1)
     )
     pas_move_onset = calculate_onset(
@@ -765,9 +773,9 @@ def area2_to_nwb(
         end_field='go_cue_time',
         min_ds=1,
         s_thresh=5,
-        peak_offset=-20, # ms
-        start_offset=-20, # ms
-        peak_divisor=10,
+        peak_offset=-50, # ms
+        start_offset=-50, # ms
+        peak_divisor=5,
         ignored_trials=(trial_info_df.ctr_hold_bump!=1)
     )
 
@@ -793,7 +801,7 @@ def area2_to_nwb(
         start_offset = 0,
         end_offset = 1250,
         trial_offset=1750, # ms
-        peak_divisor=10,
+        peak_divisor=5,
         ignored_trials=(trial_info_df.ctr_hold_bump==1)
     )
 
@@ -880,6 +888,8 @@ def area2_to_nwb(
         if verbose:
             print(f"Dropping {len(fr_dropped_channels)} channels with firing rate below {fr_threshold} Hz")
         channel_idxs = channel_idxs[(neur_fr >= fr_threshold)]
+        print(fr_dropped_channels
+            )
 
     # drop neurons based on cross-correlation
     # pairs, xcorrs = get_pair_xcorr(spike_arr[:, channel_idxs], max_points=None)
@@ -957,7 +967,7 @@ if __name__ == "__main__":
     # file_path = Path('/home/fpei2/lvm/data/orig/Han_20171204_COactpas_TD_1ms.mat')
     # file_path = Path('/home/fpei2/lvm/data/orig/Han_20171207_COactpas_TD_1ms.mat')
 
-    save_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/actpas_NWB/Duncan_20190710_COactpas_offset2.nwb')
+    save_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/actpas_NWB/Duncan_20190710_COactpas_offset6.nwb')
 
     area2_to_nwb(
         file_path=file_path,
