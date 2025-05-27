@@ -5,8 +5,8 @@ from sklearn.model_selection import GridSearchCV
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import KFold
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold, KFold, StratifiedShuffleSplit
+
 from Neural_Decoding.decoders import DenseNNDecoder
 import scipy.stats
 import numpy
@@ -465,7 +465,59 @@ def fit_and_predict(dataset, trial_mask, align_field, align_range, lag, x_field,
         sses_mean=get_sses_mean(true_concat)
         R2 =1-np.sum(sses)/np.sum(sses_mean)     
         return R2, lr_all.best_estimator_.coef_, lr_all.best_estimator_.intercept_, vel_df, R2_array
+
+def fit_and_predict_MC(dataset, trial_mask, align_field, align_range, lag, x_field, y_field,cond_dict=None):
+    """ Fits ridge regression and returns R2, regression weights, and predictions """
+    # Extract kinematics data from selected trials
+    vel_df = dataset.make_trial_data(align_field=align_field, align_range=align_range, ignored_trials=~trial_mask)
+    # Lag alignment for rates and extract rates data from selected trials
+    lag_align_range = (align_range[0] + lag, align_range[1] + lag)
+    rates_df = dataset.make_trial_data(align_field=align_field, align_range=lag_align_range, ignored_trials=~trial_mask)
     
+    n_trials = rates_df['trial_id'].nunique()
+    n_timepoints = int((align_range[1] - align_range[0])/dataset.bin_width)
+    n_neurons = rates_df[x_field].shape[1]
+
+    lr_all = GridSearchCV(Ridge(), {'alpha': np.logspace(-3, 3, 7)})
+    rates_array = rates_df[x_field].to_numpy()
+    X = (rates_array - np.nanmean(rates_array,axis=0))/np.nanstd(rates_array,axis=0)
+    vel_array = vel_df[y_field].to_numpy()
+    Y = vel_array - np.nanmean(vel_array,axis=0)
+    lr_all.fit(X, Y)
+    Y_hat = lr_all.predict(X)
+    pred_vel = Y_hat + np.nanmean(vel_array,axis=0)
+    if vel_array.shape[-1] == 2:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y'], 2))], axis=1)
+    elif vel_array.shape[-1] == 3:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', ['x', 'y','z'], 3))], axis=1)
+    else:
+        vel_df = pd.concat([vel_df, pd.DataFrame(pred_vel, columns=dataset._make_midx('pred_vel', num_channels=vel_array.shape[-1]))], axis=1)
+        
+    rates_array = rates_array.reshape(n_trials, n_timepoints, n_neurons)
+    vel_array = vel_array.reshape(n_trials, n_timepoints, -1)
+    n_splits = 20
+    R2_folds_combined = nans([n_splits])
+    R2_folds_individual = nans([n_splits, 2])
+    if not (cond_dict is None):
+        sss = StratifiedShuffleSplit(n_splits=n_splits)
+        for i, (training_set, test_set) in enumerate(sss.split(range(0,n_trials),cond_dict)):
+            #split training and testing by trials
+            X_train, X_test, y_train, y_test = process_train_test(rates_array,vel_array,training_set,test_set)
+            lr = GridSearchCV(Ridge(), {'alpha': np.logspace(-3, 3, 7)})
+            lr.fit(X_train, y_train)
+            y_pred = lr.predict(X_test)
+            # Separate R² for each dimension (x and y)
+            r2_x = 1 - np.sum((y_test[:, 0] - y_pred[:, 0]) ** 2) / np.sum((y_test[:, 0] - np.mean(y_test[:, 0])) ** 2)
+            r2_y = 1 - np.sum((y_test[:, 1] - y_pred[:, 1]) ** 2) / np.sum((y_test[:, 1] - np.mean(y_test[:, 1])) ** 2)
+            R2_folds_individual[i, :] = [r2_x, r2_y]
+
+            # Combined R² over both components
+            ss_res_combined = np.sum((y_test - y_pred) ** 2)
+            ss_tot_combined = np.sum((y_test - np.mean(y_test, axis=0)) ** 2)
+            r2_combined = 1 - ss_res_combined / ss_tot_combined
+            R2_folds_combined[i] = r2_combined
+          
+        return R2_folds_combined, lr_all.best_estimator_.coef_, lr_all.best_estimator_.intercept_, vel_df, R2_folds_individual    
 
 def fit_and_predict_lasso(dataset, trial_mask, align_field, align_range, lag, x_field, y_field,cond_dict=None):
     """ Fits ridge regression and returns R2, regression weights, and predictions """
