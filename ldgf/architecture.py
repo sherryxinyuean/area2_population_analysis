@@ -57,23 +57,38 @@ class LinearModel_with_filter(nn.Module):
         x_flat = x.reshape(n_trials*n_timepoints, n_neurons)
         linear_output_flat = x_flat @ self.linear.weight.T + self.linear.bias
         linear_output = linear_output_flat.reshape(n_trials, n_timepoints, self.output_dim)
+
+        # Transpose to (batch=n_trials, channels=output_dim, time=n_timepoints) for conv1d
+        linear_output = linear_output.permute(0, 2, 1)
+
         if self.filter_type == None or self.filter_type == 'gaussian':
-            filter_list = [self._gaussian_filter(self._filter_range,self.sigmas[j]).reshape(1,1,-1)
-                                for j in range(self.output_dim)]
+            filter_list = torch.cat([self._gaussian_filter(self._filter_range,self.sigmas[j]).reshape(1,1,-1)
+                                for j in range(self.output_dim)],dim=0)
         elif self.filter_type == 'causal':
-            filter_list = [self._causal_filter(self._filter_range,self.sigmas[j]).reshape(1,1,-1)
-                                for j in range(self.output_dim)]
+            filter_list = torch.cat([self._causal_filter(self._filter_range,self.sigmas[j]).reshape(1,1,-1)
+                                for j in range(self.output_dim)],dim=0)
         elif self.filter_type == 'anti-causal':
-            filter_list = [self._anticausal_filter(self._filter_range,self.sigmas[j]).reshape(1,1,-1)
-                                for j in range(self.output_dim)]
-        filter_output = torch.stack([F.conv1d(linear_output[:,:,j].reshape(n_trials,1,-1), filter, padding='same')  #check padding 
-                            for j, filter in enumerate(filter_list)]).squeeze()
-        if filter_output.dim()==3:
-            filter_output = torch.permute(filter_output,(1,2,0))
-            # filter_output = torch.permute(filter_output,(1,2,0)).reshape(-1,self.output_dim)
-        elif filter_output.dim()==2:
-            filter_output = filter_output.T.unsqueeze(0)
-            # filter_output = filter_output.T.reshape(-1, self.output_dim)
+            filter_list = torch.cat([self._anticausal_filter(self._filter_range,self.sigmas[j]).reshape(1,1,-1)
+                                for j in range(self.output_dim)],dim=0)
+        else:
+            raise ValueError(f"Unknown filter type: {self.filter_type}")
+        
+        # filter_output = torch.stack([F.conv1d(linear_output[:,:,j].reshape(n_trials,1,-1), filter, padding='same')  #check padding 
+        #                     for j, filter in enumerate(filter_list)]).squeeze()
+        # if filter_output.dim()==3:
+        #     filter_output = torch.permute(filter_output,(1,2,0)) #(n_trials, n_timepoints, output_dim)
+        #     # filter_output = torch.permute(filter_output,(1,2,0)).reshape(-1,self.output_dim)
+        # elif filter_output.dim()==2:
+        #     filter_output = filter_output.T.unsqueeze(0)
+        #     # filter_output = filter_output.T.reshape(-1, self.output_dim)
+                
+        filter_output = F.conv1d(
+            linear_output, # (n_trials, output_dim, n_timepoints)
+            filter_list, # (output_dim, 1, kernel_size)
+            groups = self.output_dim,
+            padding='same'
+        )
+        filter_output = filter_output.reshape(n_trials, self.output_dim, -1).permute(0, 2, 1)
         return filter_output    
 
     def forward(self, x):
