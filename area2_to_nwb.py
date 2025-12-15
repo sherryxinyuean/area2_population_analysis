@@ -966,12 +966,15 @@ def area2_to_nwb(
 if __name__ == "__main__":
     # file_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/raeed/Han_20171207_COactpas_TD.mat')
 
-    file_path = Path("/Volumes/TOSHIBA EXT/sherry/area2/raeed/Han_20171207_COactpas_TD.mat")
+    monkey_file = "Lando_20170731_COactpas_TD"
+    file_path = Path("/Volumes/TOSHIBA EXT/sherry/area2/raeed/"+monkey_file+".mat")
+
+
     # file_path = Path('/snel/share/share/data/raeed_s1/Han_20171116_COactpas_TD-2.mat')
     # file_path = Path('/home/fpei2/lvm/data/orig/Han_20171204_COactpas_TD_1ms.mat')
     # file_path = Path('/home/fpei2/lvm/data/orig/Han_20171207_COactpas_TD_1ms.mat')
 
-    save_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/actpas_NWB/Han_20171207_COactpas_TD_offset6.nwb')
+    save_path = Path('/Users/sherryan/area2_population_analysis/s1-kinematics/actpas_NWB/'+monkey_file+'_offset6.nwb')
 
     area2_to_nwb(
         file_path=file_path,
