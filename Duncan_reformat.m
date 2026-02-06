@@ -25,7 +25,7 @@ idx_go_all    = trial_data.idx_goCueTime(:);  % nGoCues x 1 (global time indices
 
 bumpDir = trial_data.bumpDir(:);              % nTrials x 1 (NaN = no bump)
 
-% Our label:
+%  label:
 %   0   = active (no bump)
 %   1   = passive / center-hold bump  (bump before go cue)
 %   NaN = reach-bump (bump after go cue) OR ambiguous
@@ -52,7 +52,6 @@ for tr = 1:nTrials
     % there is at least one bump in this trial
     if isempty(gocues_this_trial)
         % bump but no go-cue registered: ambiguous; keep as NaN
-        % (you could decide to treat these as center-hold if you want)
         continue
     end
 
