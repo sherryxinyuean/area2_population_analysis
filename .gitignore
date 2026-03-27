@@ -25,5 +25,11 @@ s1-kinematics/
 *.pptx
 *.docx
 *.pkl
+*.m
+*area2_to_nwb*
 outputs/
 scripts_archive/
+sca/
+ldgf/
+Neural_Decoding/
+*scratch*
